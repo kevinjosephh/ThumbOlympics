@@ -1,0 +1,31 @@
+# Flutter/Dart related
+.dart_tool/
+.build/
+.flutter-plugins
+.flutter-plugins-dependencies
+.idea/
+.vscode/
+*.iml
+pubspec.lock
+
+# Flutter build outputs
+/build/
+# Android
+/android/.gradle/
+android/app/debug/
+android/app/profile/
+android/app/release/
+
+# iOS
+/ios/.symlinks/
+/ios/Flutter/Flutter.framework/
+/ios/Flutter/Flutter.podspec
+ios/Pods/
+/ios/Runner.xcworkspace
+
+# macOS
+/macos/Flutter/ephemeral/
+/macos/Pods/
+
+# Windows
+/windows/Flutter/ephemeral/

@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">ThumbOlympics</string>
+    <string name="accessibility_service_description">ThumbOlympics tracks your scroll distance and compares it to real-world landmarks to help you become more aware of your scrolling habits.</string>
+</resources> 

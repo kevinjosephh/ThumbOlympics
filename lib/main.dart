@@ -199,7 +199,7 @@ class _ThumbOlympicsHomePageState extends State<ThumbOlympicsHomePage>
     } else if (meters < 1) {
       return '${(meters * 100).toStringAsFixed(0)} cm';
     } else {
-      return '${meters.toStringAsFixed(1)} m';
+      return '${meters.toStringAsFixed(0)} m';
     }
   }
 
@@ -296,290 +296,277 @@ class _ThumbOlympicsHomePageState extends State<ThumbOlympicsHomePage>
     }
   }
 
+  String _getAchievementMessage() {
+    final relevantComparisons = _getRelevantComparisons();
+    
+    // Find the first completed achievement
+    for (final comparison in relevantComparisons) {
+      final ratio = totalScrollDistance / comparison.value;
+      if (ratio >= 1.0) {
+        return "🏃‍♀️ You just scrolled the height of ${comparison.key}!";
+      }
+    }
+    
+    // If no completed achievements, show progress toward next milestone
+    for (final comparison in relevantComparisons) {
+      final ratio = totalScrollDistance / comparison.value;
+      if (ratio < 1.0 && ratio > 0.1) {
+        final percentage = (ratio * 100).toInt();
+        return "🎯 $percentage% of the way to ${comparison.key}!";
+      }
+    }
+    
+    return "🚀 Keep scrolling to reach your first milestone!";
+  }
+
   @override
   Widget build(BuildContext context) {
     final relevantComparisons = _getRelevantComparisons();
     
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('ThumbOlympics'),
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: _checkAccessibilityAndStart,
-            tooltip: 'Refresh Status',
+      body: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              const Color(0xFF1E88E5),
+              const Color(0xFF1976D2),
+            ],
           ),
-        ],
-      ),
-      body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(16.0),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              // Status Card
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(16.0),
+        ),
+        child: SafeArea(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(20.0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                // Header with app name and refresh button
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      'ThumbOlympics',
+                      style: TextStyle(
+                        fontSize: 28,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
+                      ),
+                    ),
+                    Container(
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.2),
+                        shape: BoxShape.circle,
+                      ),
+                      child: IconButton(
+                        icon: const Icon(Icons.refresh, color: Colors.white),
+                        onPressed: _checkAccessibilityAndStart,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 30),
+                
+                // Main thumb icon and distance display
+                Container(
+                  height: 200,
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.1),
+                    shape: BoxShape.circle,
+                  ),
                   child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Icon(
-                        isAccessibilityEnabled 
-                            ? Icons.accessibility_new 
-                            : Icons.accessibility,
-                        size: 48,
-                        color: isAccessibilityEnabled ? Colors.green : Colors.red,
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        isAccessibilityEnabled 
-                            ? 'Tracking Your Scroll Journey' 
-                            : 'Enable Accessibility Service',
-                        style: Theme.of(context).textTheme.titleMedium,
-                        textAlign: TextAlign.center,
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        isAccessibilityEnabled 
-                            ? 'Every scroll is being measured...' 
-                            : 'Start your scrolling adventure!',
-                        style: Theme.of(context).textTheme.bodyMedium,
-                        textAlign: TextAlign.center,
+                      // Thumb icon
+                      Container(
+                        width: 180,
+                        height: 180,
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.2),
+                          shape: BoxShape.circle,
+                        ),
+                        child: Icon(
+                          Icons.thumb_up,
+                          size: 100,
+                          color: Colors.white,
+                        ),
                       ),
                     ],
                   ),
                 ),
-              ),
-              const SizedBox(height: 16),
-              
-              if (isAccessibilityEnabled) ...[
-                // Total Distance Card
-                Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(16.0),
-                    child: Column(
-                      children: [
-                        Text(
-                          'Total Scroll Distance',
-                          style: Theme.of(context).textTheme.titleMedium,
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          _formatDistance(totalScrollDistance),
-                          style: Theme.of(context).textTheme.headlineLarge?.copyWith(
-                            fontWeight: FontWeight.bold,
-                            color: Theme.of(context).primaryColor,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          _getPlayfulMessage(),
-                          style: Theme.of(context).textTheme.bodyLarge,
-                          textAlign: TextAlign.center,
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          _getScrollAdvice(),
-                          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                            fontStyle: FontStyle.italic,
-                            color: Theme.of(context).colorScheme.secondary,
-                          ),
-                          textAlign: TextAlign.center,
-                        ),
-                      ],
+                const SizedBox(height: 5),
+                // Distance display
+                Text(
+                  _formatDistance(totalScrollDistance),
+                  style: TextStyle(
+                    fontSize: 38,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 5),
+                // Status message
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Color(0xFF0D47A1).withOpacity(0.4),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Text(
+                    isAccessibilityEnabled 
+                        ? 'Thumb in Beast Mode'
+                        : 'Enable Accessibility Service',
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.white,
                     ),
+                    textAlign: TextAlign.center,
                   ),
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: 20),
                 
-                // Scroll Count Card
-                Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(16.0),
-                    child: Column(
+                if (isAccessibilityEnabled) ...[
+                  // Distance Today Card
+                  Container(
+                    padding: const EdgeInsets.all(20),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Text(
-                          'Scroll Events',
-                          style: Theme.of(context).textTheme.titleMedium,
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Distance Today',
+                              style: TextStyle(
+                                fontSize: 16,
+                                color: Colors.grey[600],
+                              ),
+                            ),
+                            Text(
+                              _formatDistance(totalScrollDistance),
+                              style: TextStyle(
+                                fontSize: 32,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.black,
+                              ),
+                            ),
+                          ],
                         ),
-                        const SizedBox(height: 8),
                         Text(
                           '$scrollCount',
-                          style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                          style: TextStyle(
+                            fontSize: 32,
                             fontWeight: FontWeight.bold,
+                            color: Colors.grey[400],
                           ),
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          'That\'s a lot of swiping! 📱',
-                          style: Theme.of(context).textTheme.bodyMedium,
-                          textAlign: TextAlign.center,
                         ),
                       ],
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                
-                // Distance Comparisons
-                if (relevantComparisons.isNotEmpty) ...[
-                  Card(
-                    child: Padding(
-                      padding: const EdgeInsets.all(16.0),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Your Scroll Journey',
-                            style: Theme.of(context).textTheme.titleMedium,
-                          ),
-                          const SizedBox(height: 12),
-                          ...relevantComparisons.asMap().entries.map((entry) {
-                            final index = entry.key;
-                            final comparison = entry.value;
-                            final ratio = totalScrollDistance / comparison.value;
-                            final percentage = (ratio * 100).toStringAsFixed(1);
-                            final remaining = comparison.value - totalScrollDistance;
-                            final isCompleted = ratio >= 1.0;
-                            
-                            return Container(
-                              margin: const EdgeInsets.only(bottom: 12.0),
-                              padding: const EdgeInsets.all(12.0),
-                              decoration: BoxDecoration(
-                                color: isCompleted 
-                                    ? Colors.green.withOpacity(0.1)
-                                    : Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.3),
-                                borderRadius: BorderRadius.circular(8.0),
-                                border: Border.all(
-                                  color: isCompleted 
-                                      ? Colors.green.withOpacity(0.3)
-                                      : Theme.of(context).colorScheme.outline.withOpacity(0.2),
-                                  width: 1,
-                                ),
-                              ),
-                              child: Row(
-                                children: [
-                                  // Progress indicator or completion icon
-                                  Container(
-                                    width: 32,
-                                    height: 32,
-                                    decoration: BoxDecoration(
-                                      shape: BoxShape.circle,
-                                      color: isCompleted 
-                                          ? Colors.green
-                                          : Theme.of(context).primaryColor.withOpacity(0.2),
-                                    ),
-                                    child: Icon(
-                                      isCompleted ? Icons.check : Icons.flag,
-                                      color: isCompleted 
-                                          ? Colors.white 
-                                          : Theme.of(context).primaryColor,
-                                      size: 18,
-                                    ),
-                                  ),
-                                  const SizedBox(width: 12),
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        Row(
-                                          children: [
-                                            Expanded(
-                                              child: Text(
-                                                comparison.key,
-                                                style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                                                  fontWeight: FontWeight.w600,
-                                                  color: isCompleted ? Colors.green.shade700 : null,
-                                                ),
-                                              ),
-                                            ),
-                                            Text(
-                                              _formatDistance(comparison.value),
-                                              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                                color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                        const SizedBox(height: 4),
-                                        if (isCompleted) ...[
-                                          Text(
-                                            '🎉 Completed! You scrolled ${ratio.toStringAsFixed(1)}x this distance!',
-                                            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                              color: Colors.green.shade600,
-                                              fontWeight: FontWeight.w500,
-                                            ),
-                                          ),
-                                        ] else ...[
-                                          // Progress bar for in-progress items
-                                          Row(
-                                            children: [
-                                              Expanded(
-                                                child: LinearProgressIndicator(
-                                                  value: ratio.clamp(0.0, 1.0),
-                                                  backgroundColor: Theme.of(context).colorScheme.outline.withOpacity(0.2),
-                                                  valueColor: AlwaysStoppedAnimation<Color>(
-                                                    Theme.of(context).primaryColor,
-                                                  ),
-                                                ),
-                                              ),
-                                              const SizedBox(width: 8),
-                                              Text(
-                                                '$percentage%',
-                                                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                                  fontWeight: FontWeight.w500,
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                          const SizedBox(height: 2),
-                                          Text(
-                                            '${_formatDistance(remaining)} to go',
-                                            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                              color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
-                                            ),
-                                          ),
-                                        ],
-                                      ],
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            );
-                          }),
-                        ],
-                      ),
                     ),
                   ),
                   const SizedBox(height: 16),
+                  
+                  // Achievement Card
+                  Container(
+                    padding: const EdgeInsets.all(20),
+                    decoration: BoxDecoration(
+                      color: Color(0xFFE3F2FD),
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.emoji_events,
+                          size: 30,
+                          color: Color(0xFF1976D2),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(
+                            _getAchievementMessage(),
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                              color: Color(0xFF1976D2),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 20),
                 ],
+                
+                // Action Buttons
+                ElevatedButton(
+                  onPressed: _openAccessibilitySettings,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.white,
+                    foregroundColor: Color(0xFF1976D2),
+                    padding: const EdgeInsets.all(16),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    elevation: 0,
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.settings),
+                      const SizedBox(width: 8),
+                      Text(
+                        'Open Accessibility Settings',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 12),
+                
+                // if (totalScrollDistance > 0)
+                //   OutlinedButton(
+                //     onPressed: () async {
+                //       setState(() {
+                //         totalScrollDistance = 0.0;
+                //         scrollCount = 0;
+                //       });
+                //       await _saveScrollData();
+                //     },
+                //     style: OutlinedButton.styleFrom(
+                //       foregroundColor: Colors.white,
+                //       side: BorderSide(color: Colors.white.withOpacity(0.5)),
+                //       padding: const EdgeInsets.all(16),
+                //       shape: RoundedRectangleBorder(
+                //         borderRadius: BorderRadius.circular(12),
+                //       ),
+                //     ),
+                //     child: Row(
+                //       mainAxisAlignment: MainAxisAlignment.center,
+                //       children: [
+                //         Icon(Icons.refresh),
+                //         const SizedBox(width: 8),
+                //         Text(
+                //           'Reset Counter',
+                //           style: TextStyle(
+                //             fontSize: 16,
+                //             fontWeight: FontWeight.w600,
+                //           ),
+                //         ),
+                //       ],
+                //     ),
+                //   ),
+                
+                const SizedBox(height: 20), // Bottom padding
               ],
-              
-              // Action Buttons
-              ElevatedButton.icon(
-                onPressed: _openAccessibilitySettings,
-                icon: const Icon(Icons.settings),
-                label: const Text('Open Accessibility Settings'),
-                style: ElevatedButton.styleFrom(
-                  padding: const EdgeInsets.all(16),
-                ),
-              ),
-              const SizedBox(height: 8),
-              if (totalScrollDistance > 0)
-                OutlinedButton.icon(
-                  onPressed: () async {
-                    setState(() {
-                      totalScrollDistance = 0.0;
-                      scrollCount = 0;
-                    });
-                    await _saveScrollData();
-                  },
-                  icon: const Icon(Icons.refresh),
-                  label: const Text('Reset Counter'),
-                ),
-              const SizedBox(height: 16), // Bottom padding for safe area
-            ],
+            ),
           ),
         ),
       ),

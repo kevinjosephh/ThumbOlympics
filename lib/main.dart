@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -15,7 +16,7 @@ class ThumbOlympicsApp extends StatelessWidget {
     return MaterialApp(
       title: 'ThumbOlympics',
       theme: ThemeData(
-        primarySwatch: Colors.blue,
+        colorSchemeSeed: const Color(0xFF1976D2),
         useMaterial3: true,
       ),
       home: const ThumbOlympicsHomePage(),
@@ -32,96 +33,102 @@ class ThumbOlympicsHomePage extends StatefulWidget {
 }
 
 class _ThumbOlympicsHomePageState extends State<ThumbOlympicsHomePage>
-    with WidgetsBindingObserver {
-  double totalScrollDistance = 0.0; // in meters
-  int scrollCount = 0;
+    with WidgetsBindingObserver, TickerProviderStateMixin {
+  // ---------- Counters ----------
+  // Daily
+  double dailyDistance = 0.0; // meters
+  int dailyScrolls = 0;
+  // Lifetime
+  double lifetimeDistance = 0.0; // meters
+  int lifetimeScrolls = 0;
+
+  String lastDateKey = _todayKey();
   bool isAccessibilityEnabled = false;
+
+  // Animation for progress ring & thumb
+  late final AnimationController _pulseCtrl;
+  late final AnimationController _progressCtrl;
+  double _uiProgress = 0.0; // animated value for ring
+
   static const _platform = MethodChannel('thumbolympics/accessibility');
 
-  // Real-world distance comparisons (in meters) - expanded for better perspective
+  // ---------- Milestones (in meters) ----------
   static const Map<String, double> distanceComparisons = {
-    // Small everyday objects & spaces
-    'Football Field': 109.7,
+    // Everyday / Small
+    'Giraffe Height': 5.5,
+    'T-Rex Length': 12.0,
+    'Blue Whale Length': 30.0,
     'Swimming Pool (Olympic)': 50.0,
-    
-    // Buildings & Landmarks
-    'Statue of Liberty': 93.0,
-    'London Eye': 135.0,
+    'Niagara Falls (height)': 51.0,
+    'Football Field': 109.7,
     'Big Ben': 96.0,
+    'Statue of Liberty': 93.0,
+    'Taj Mahal': 73.0,
+    'Boeing 747 Length': 70.6,
+
+    // Landmarks
+    'London Eye': 135.0,
     'Eiffel Tower': 324.0,
     'Empire State Building': 443.0,
     'Burj Khalifa': 828.0,
-    
-    // Natural Features
-    'Mount Everest': 8848.0,
-    'Grand Canyon (depth)': 1800.0,
-    'Niagara Falls (height)': 51.0,
+
+    // Nature
     'Angel Falls': 979.0,
-    
-    // Sports & Activities
-    'Marathon': 42195.0,
-    'Half Marathon': 21097.0,
-    '10K Race': 10000.0,
-    '5K Race': 5000.0,
-    'Mile Run': 1609.0,
-    
-    // Transportation
-    'Boeing 747 Length': 70.6,
-    'Cruise Ship (avg)': 300.0,
-    'Titanic Length': 269.0,
-    
-    // Cultural & Historical
-    'Taj Mahal': 73.0,
+    'Grand Canyon (depth)': 1800.0,
     'Machu Picchu (elevation)': 2430.0,
+    'Mount Everest': 8848.0,
+
+    // Sports
+    'Mile Run': 1609.0,
+    '5K Race': 5000.0,
+    '10K Race': 10000.0,
+    'Half Marathon': 21097.0,
+    'Marathon': 42195.0,
+
+    // Vehicles / Big
+    'Titanic Length': 269.0,
+    'Cruise Ship (avg)': 300.0,
+
+    // Absurd
     'Colosseum': 48.0,
-    'Great Wall of China': 21196000.0, // Full length
-    
-    // Fun & Quirky
-    'Blue Whale Length': 30.0,
-    'T-Rex Length': 12.0,
-    'Giraffe Height': 5.5,
+    'Great Wall of China': 21196000.0,
   };
 
+  // ---------- Lifecycle ----------
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _loadScrollData();
+
+    _pulseCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 2000),
+      lowerBound: 0.95,
+      upperBound: 1.05,
+    )..repeat(reverse: true);
+
+    _progressCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 800),
+    );
+
+    _loadAll();
 
     _platform.setMethodCallHandler((call) async {
-      if (call.method == "onScroll") {
+      if (call.method == 'onScroll') {
         try {
-          // Handle scroll data from accessibility service
           if (call.arguments is Map) {
             final data = Map<String, dynamic>.from(call.arguments);
-            final pixels = data['distance'] as int? ?? 150;
-            
-            // Convert pixels to meters (roughly 1 pixel = 0.000264583 meters on average)
-            // This is an approximation based on typical phone screen density
-            // For better accuracy, we could use device-specific DPI information
+            final pixels = (data['distance'] as num?)?.toDouble() ?? 150.0;
+            // Approx conversion: 1 px ≈ 0.000264583 m
             final scrollDistance = pixels * 0.000264583;
-            
-            setState(() {
-              totalScrollDistance += scrollDistance;
-              scrollCount++;
-            });
-            _saveScrollData();
+            _bump(scrollDistance);
           } else {
-            // Fallback for old format
-            const scrollDistance = 0.15; // meters per scroll event
-            setState(() {
-              totalScrollDistance += scrollDistance;
-              scrollCount++;
-            });
-            _saveScrollData();
+            // Fallback per event
+            _bump(0.15);
           }
         } catch (e) {
-          // Silent error handling for production
-          setState(() {
-            totalScrollDistance += 0.15;
-            scrollCount++;
-          });
-          _saveScrollData();
+          _bump(0.15);
         }
       }
     });
@@ -132,444 +139,650 @@ class _ThumbOlympicsHomePageState extends State<ThumbOlympicsHomePage>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _pulseCtrl.dispose();
+    _progressCtrl.dispose();
     super.dispose();
   }
 
-  /// Called when app lifecycle changes (e.g., coming back from settings)
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       _checkAccessibilityAndStart();
+      _ensureDailyBoundary();
     }
   }
 
-  /// Opens the Accessibility Settings screen
+  // ---------- Storage ----------
+  static const _kDailyDistance = 'dailyDistance';
+  static const _kDailyScrolls = 'dailyScrolls';
+  static const _kLifetimeDistance = 'lifetimeDistance';
+  static const _kLifetimeScrolls = 'lifetimeScrolls';
+  static const _kLastDateKey = 'lastDateKey';
+
+  static String _todayKey() {
+    final now = DateTime.now();
+    return '${now.year}-${now.month}-${now.day}';
+  }
+
+  Future<void> _loadAll() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final savedDate = prefs.getString(_kLastDateKey) ?? _todayKey();
+      lastDateKey = savedDate;
+
+      lifetimeDistance = prefs.getDouble(_kLifetimeDistance) ?? 0.0;
+      lifetimeScrolls = prefs.getInt(_kLifetimeScrolls) ?? 0;
+
+      if (savedDate == _todayKey()) {
+        dailyDistance = prefs.getDouble(_kDailyDistance) ?? 0.0;
+        dailyScrolls = prefs.getInt(_kDailyScrolls) ?? 0;
+      } else {
+        dailyDistance = 0.0;
+        dailyScrolls = 0;
+        lastDateKey = _todayKey();
+      }
+
+      setState(() {});
+      _animateProgressTo(_progressToNextGoal());
+    } catch (_) {
+      // Best effort; keep defaults
+    }
+  }
+
+  Future<void> _saveAll() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_kLastDateKey, lastDateKey);
+      await prefs.setDouble(_kDailyDistance, dailyDistance);
+      await prefs.setInt(_kDailyScrolls, dailyScrolls);
+      await prefs.setDouble(_kLifetimeDistance, lifetimeDistance);
+      await prefs.setInt(_kLifetimeScrolls, lifetimeScrolls);
+    } catch (_) {}
+  }
+
+  Future<void> _resetToday() async {
+    dailyDistance = 0.0;
+    dailyScrolls = 0;
+    lastDateKey = _todayKey();
+    setState(() {});
+    await _saveAll();
+    _animateProgressTo(_progressToNextGoal());
+  }
+
+  Future<void> _resetAll() async {
+    dailyDistance = 0.0;
+    dailyScrolls = 0;
+    lifetimeDistance = 0.0;
+    lifetimeScrolls = 0;
+    lastDateKey = _todayKey();
+    setState(() {});
+    await _saveAll();
+    _animateProgressTo(_progressToNextGoal());
+  }
+
+  void _ensureDailyBoundary() async {
+    final today = _todayKey();
+    if (lastDateKey != today) {
+      lastDateKey = today;
+      dailyDistance = 0.0;
+      dailyScrolls = 0;
+      setState(() {});
+      await _saveAll();
+      _animateProgressTo(_progressToNextGoal());
+    }
+  }
+
+  // ---------- Accessibility ----------
   Future<void> _openAccessibilitySettings() async {
     try {
       await _platform.invokeMethod('openAccessibilitySettings');
-    } catch (e) {
-      // Silent error handling for production
-    }
+    } catch (_) {}
   }
 
-  /// Check if the accessibility service is enabled
   Future<bool> _isAccessibilityEnabled() async {
     try {
       final bool result =
           await _platform.invokeMethod('isAccessibilityServiceEnabled');
       return result;
-    } catch (e) {
+    } catch (_) {
       return false;
     }
   }
 
-  /// If enabled, start session tracking
   Future<void> _checkAccessibilityAndStart() async {
     final enabled = await _isAccessibilityEnabled();
-    setState(() {
-      isAccessibilityEnabled = enabled;
-    });
+    setState(() => isAccessibilityEnabled = enabled);
   }
 
-  Future<void> _loadScrollData() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
+  // ---------- Helpers ----------
+  void _bump(double meters) async {
+    _ensureDailyBoundary();
+
+    dailyDistance += meters;
+    dailyScrolls += 1;
+    lifetimeDistance += meters;
+    lifetimeScrolls += 1;
+    setState(() {});
+    await _saveAll();
+
+    final newProgress = _progressToNextGoal();
+    _animateProgressTo(newProgress);
+  }
+
+  void _animateProgressTo(double target) {
+    final begin = _uiProgress;
+    final end = target.clamp(0.0, 1.0);
+    _progressCtrl.stop();
+    _progressCtrl.reset();
+    final tween = Tween<double>(begin: begin, end: end);
+    _progressCtrl.addListener(() {
       setState(() {
-        totalScrollDistance = prefs.getDouble('totalScrollDistance') ?? 0.0;
-        scrollCount = prefs.getInt('scrollCount') ?? 0;
+        _uiProgress = tween.evaluate(_progressCtrl);
       });
-    } catch (e) {
-      // Silent error handling for production
-    }
-  }
-
-  Future<void> _saveScrollData() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setDouble('totalScrollDistance', totalScrollDistance);
-      await prefs.setInt('scrollCount', scrollCount);
-    } catch (e) {
-      // Silent error handling for production
-    }
-  }
-
-  String _formatDistance(double meters) {
-    if (meters >= 1000) {
-      return '${(meters / 1000).toStringAsFixed(1)} km';
-    } else if (meters < 1) {
-      return '${(meters * 100).toStringAsFixed(0)} cm';
-    } else {
-      return '${meters.toStringAsFixed(0)} m';
-    }
-  }
-
-  List<MapEntry<String, double>> _getRelevantComparisons() {
-    final allComparisons = distanceComparisons.entries.toList();
-    final completed = <MapEntry<String, double>>[];
-    final inProgress = <MapEntry<String, double>>[];
-    final upcoming = <MapEntry<String, double>>[];
-    
-    for (final entry in allComparisons) {
-      final ratio = totalScrollDistance / entry.value;
-      
-      if (ratio >= 1.0) {
-        // Completed milestones
-        completed.add(entry);
-      } else if (ratio >= 0.01) {
-        // At least 1% progress - show as in progress
-        inProgress.add(entry);
-      } else {
-        // Future milestones
-        upcoming.add(entry);
-      }
-    }
-    
-    // Sort completed by ratio (highest multiples first)
-    completed.sort((a, b) {
-      final ratioA = totalScrollDistance / a.value;
-      final ratioB = totalScrollDistance / b.value;
-      return ratioB.compareTo(ratioA);
     });
-    
-    // Sort in-progress by completion percentage (closest to completion first)
-    inProgress.sort((a, b) {
-      final ratioA = totalScrollDistance / a.value;
-      final ratioB = totalScrollDistance / b.value;
-      return ratioB.compareTo(ratioA);
-    });
-    
-    // Sort upcoming by distance (closest/smallest first)
-    upcoming.sort((a, b) => a.value.compareTo(b.value));
-    
-    final result = <MapEntry<String, double>>[];
-    
-    // Add in-progress items first (up to 3) - current goals
-    result.addAll(inProgress.take(3));
-    
-    // Add some upcoming milestones (up to 2) - future motivation  
-    final remainingSlotsBeforeCompleted = 5 - result.length - completed.length.clamp(0, 2);
-    if (remainingSlotsBeforeCompleted > 0) {
-      result.addAll(upcoming.take(remainingSlotsBeforeCompleted));
-    }
-    
-    // Add completed items at the bottom (up to 2) - achievements
-    result.addAll(completed.take(2));
-    
-    return result.take(5).toList();
+    _progressCtrl.forward();
   }
 
-  String _getPlayfulMessage() {
-    if (totalScrollDistance < 1) {
-      return "Baby steps in the scrolling Olympics! 👶";
-    } else if (totalScrollDistance < 10) {
-      return "You're getting the hang of this! 🤸‍♂️";
-    } else if (totalScrollDistance < 50) {
-      return "Now we're scrolling! 💪";
-    } else if (totalScrollDistance < 100) {
-      return "Serious scrolling athlete in training! 🏅";
-    } else if (totalScrollDistance < 500) {
-      return "Olympic-level thumb endurance! 🥇";
-    } else if (totalScrollDistance < 1000) {
-      return "You could've climbed a skyscraper! 🏔️";
-    } else if (totalScrollDistance < 5000) {
-      return "Marathon-level scrolling dedication! 🏃‍♀️";
-    } else if (totalScrollDistance < 10000) {
-      return "You're in the scrolling hall of fame! 🏆";
-    } else {
-      return "Legendary scroll master! 👑";
-    }
+  String _fmtDistance(double meters) {
+    if (meters >= 1000) return '${(meters / 1000).toStringAsFixed(1)} km';
+    if (meters < 1) return '${(meters * 100).toStringAsFixed(0)} cm';
+    return '${meters.toStringAsFixed(0)} m';
   }
 
-  String _getScrollAdvice() {
-    if (totalScrollDistance < 10) {
-      return "Keep exploring! The scrolling world awaits! 🌟";
-    } else if (totalScrollDistance < 50) {
-      return "Stay hydrated during your scroll sessions! 💧";
-    } else if (totalScrollDistance < 100) {
-      return "Don't forget to stretch those thumbs! 🤲";
-    } else if (totalScrollDistance < 500) {
-      return "Consider some cross-training with other apps! 📱";
-    } else if (totalScrollDistance < 1000) {
-      return "Maybe it's time for a scrolling break? 🏋️‍♂️";
-    } else {
-      return "You've definitely earned a gold medal! 🥇";
+  MapEntry<String, double>? _nextGoal() {
+    final entries = distanceComparisons.entries.toList()
+      ..sort((a, b) => a.value.compareTo(b.value));
+    for (final e in entries) {
+      if (lifetimeDistance < e.value) return e;
     }
+    return entries.isNotEmpty ? entries.last : null;
   }
 
-  String _getAchievementMessage() {
-    final relevantComparisons = _getRelevantComparisons();
+  double _progressToNextGoal() {
+    final goal = _nextGoal();
+    if (goal == null || goal.value <= 0) return 0;
+    return (lifetimeDistance / goal.value).clamp(0.0, 1.0);
+  }
+
+  List<_MilestoneView> _milestonesForPanel() {
+    final items = distanceComparisons.entries
+        .map((e) => _MilestoneView(
+              label: e.key,
+              meters: e.value,
+              progress: (lifetimeDistance / e.value).clamp(0.0, 1.0),
+              state: lifetimeDistance >= e.value
+                  ? _MilestoneState.completed
+                  : (lifetimeDistance / e.value >= 0.01
+                      ? _MilestoneState.inProgress
+                      : _MilestoneState.upcoming),
+            ))
+        .toList();
+
+    // Get 3 most nearest upcoming/in-progress milestones
+    final upcoming = items
+        .where((i) => i.state == _MilestoneState.upcoming || i.state == _MilestoneState.inProgress)
+        .toList();
     
-    // Find the first completed achievement
-    for (final comparison in relevantComparisons) {
-      final ratio = totalScrollDistance / comparison.value;
-      if (ratio >= 1.0) {
-        return "🏃‍♀️ You just scrolled the height of ${comparison.key}!";
+    // Sort by distance (nearest first)
+    upcoming.sort((a, b) => a.meters.compareTo(b.meters));
+    final nearestMilestones = upcoming.take(3).toList();
+
+    // Get 3 most impressive completed milestones
+    final completed = items
+        .where((i) => i.state == _MilestoneState.completed)
+        .toList();
+    
+    // Sort by distance value (most impressive/largest first)
+    completed.sort((a, b) => b.meters.compareTo(a.meters));
+    final impressiveCompleted = completed.take(3).toList();
+
+    // Combine them: nearest first, then impressive completed
+    return [
+      ...nearestMilestones,
+      ...impressiveCompleted,
+    ];
+  }
+
+  String _headline() {
+    final p = lifetimeDistance;
+    if (p < 1) return "Baby steps in the scrolling Olympics! 👶";
+    if (p < 10) return "You're getting the hang of this! 🤸‍♂️";
+    if (p < 50) return "Now we're scrolling! 💪";
+    if (p < 100) return "Serious scrolling athlete in training! 🏅";
+    if (p < 500) return "Olympic-level thumb endurance! 🥇";
+    if (p < 1000) return "You could've climbed a skyscraper! 🏔️";
+    if (p < 5000) return "Marathon-level scrolling dedication! 🏃‍♀️";
+    if (p < 10000) return "You're in the scrolling hall of fame! 🏆";
+    return "Legendary scroll master! 👑";
+  }
+
+  String _achievementBlurb() {
+    final items = _milestonesForPanel();
+    for (final m in items) {
+      if (m.state == _MilestoneState.completed) {
+        return "🏁 You just scrolled the height of ${m.label}!";
       }
     }
-    
-    // If no completed achievements, show progress toward next milestone
-    for (final comparison in relevantComparisons) {
-      final ratio = totalScrollDistance / comparison.value;
-      if (ratio < 1.0 && ratio > 0.1) {
-        final percentage = (ratio * 100).toInt();
-        return "🎯 $percentage% of the way to ${comparison.key}!";
+    for (final m in items) {
+      if (m.state == _MilestoneState.inProgress && m.progress > 0.1) {
+        return "🎯 ${(m.progress * 100).toStringAsFixed(0)}% of the way to ${m.label}!";
       }
     }
-    
     return "🚀 Keep scrolling to reach your first milestone!";
   }
 
+  // ---------- UI ----------
   @override
   Widget build(BuildContext context) {
-    final relevantComparisons = _getRelevantComparisons();
-    
+    final nextGoal = _nextGoal();
+    final nextLabel = nextGoal?.key ?? 'Goal';
+    final nextMeters = nextGoal?.value ?? 1.0;
+
     return Scaffold(
       body: Container(
-        decoration: BoxDecoration(
+        decoration: const BoxDecoration(
           gradient: LinearGradient(
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
-            colors: [
-              const Color(0xFF1E88E5),
-              const Color(0xFF1976D2),
-            ],
+            colors: [Color(0xFF1E88E5), Color(0xFF1976D2)],
           ),
         ),
         child: SafeArea(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(20.0),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                // Header with app name and refresh button
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+            children: [
+              // ---------- Status Banner ----------
+              Container(
+                padding: const EdgeInsets.all(14),
+                child: Column(
                   children: [
                     Text(
-                      'ThumbOlympics',
+                      "ThumbOlympics",
                       style: TextStyle(
-                        fontSize: 28,
-                        fontWeight: FontWeight.bold,
                         color: Colors.white,
+                        fontSize: 20,
+                        fontWeight: FontWeight.w600
                       ),
-                    ),
-                    Container(
-                      decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.2),
-                        shape: BoxShape.circle,
-                      ),
-                      child: IconButton(
-                        icon: const Icon(Icons.refresh, color: Colors.white),
-                        onPressed: _checkAccessibilityAndStart,
-                      ),
-                    ),
+                    )
                   ],
                 ),
-                const SizedBox(height: 30),
-                
-                // Main thumb icon and distance display
-                Container(
-                  height: 200,
-                  decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.1),
-                    shape: BoxShape.circle,
-                  ),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      // Thumb icon
-                      Container(
-                        width: 180,
-                        height: 180,
-                        decoration: BoxDecoration(
-                          color: Colors.white.withOpacity(0.2),
-                          shape: BoxShape.circle,
-                        ),
-                        child: Icon(
-                          Icons.thumb_up,
-                          size: 100,
+              ),
+              Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF0D47A1).withOpacity(0.35),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      isAccessibilityEnabled
+                          ? Icons.flash_on
+                          : Icons.block_flipped,
+                      color: Colors.white,
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        isAccessibilityEnabled
+                            ? 'Thumb in Beast Mode'
+                            : 'Enable Accessibility Service to start tracking',
+                        style: const TextStyle(
                           color: Colors.white,
+                          fontWeight: FontWeight.w600,
                         ),
                       ),
-                    ],
+                    ),
+                    if (!isAccessibilityEnabled)
+                      TextButton(
+                        onPressed: _openAccessibilitySettings,
+                        child: const Text('Enable'),
+                      ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 20),
+
+              // ---------- Big Progress Ring ----------
+              Center(
+                child: ScaleTransition(
+                  scale: _pulseCtrl,
+                  child: SizedBox(
+                    width: 200,
+                    height: 200,
+                    child: CustomPaint(
+                      painter: RingProgressPainter(
+                        progress: _uiProgress,
+                        backgroundColor: Colors.white.withOpacity(0.28),
+                        foregroundColor: Colors.white,
+                        strokeWidth: 10,
+                      ),
+                      child: Center(
+                        child: Container(
+                          width: 180,
+                          height: 180,
+                          decoration: BoxDecoration(
+                            color: Colors.white.withOpacity(0.18),
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(
+                            Icons.thumb_up,
+                            size: 100,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ),
+                    ),
                   ),
                 ),
-                const SizedBox(height: 5),
-                // Distance display
-                Text(
-                  _formatDistance(totalScrollDistance),
-                  style: TextStyle(
-                    fontSize: 38,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.white,
-                  ),
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 5),
-                // Status message
-                Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: Color(0xFF0D47A1).withOpacity(0.4),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Text(
-                    isAccessibilityEnabled 
-                        ? 'Thumb in Beast Mode'
-                        : 'Enable Accessibility Service',
-                    style: TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.w600,
+              ),
+              const SizedBox(height: 10),
+
+              // Distances + Next Goal
+              Column(
+                children: [
+                  Text(
+                    _fmtDistance(lifetimeDistance),
+                    style: const TextStyle(
+                      fontSize: 38,
+                      fontWeight: FontWeight.bold,
                       color: Colors.white,
                     ),
                     textAlign: TextAlign.center,
                   ),
-                ),
-                const SizedBox(height: 20),
-                
-                if (isAccessibilityEnabled) ...[
-                  // Distance Today Card
-                  Container(
-                    padding: const EdgeInsets.all(20),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(16),
-                    ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Distance Today',
-                              style: TextStyle(
-                                fontSize: 16,
-                                color: Colors.grey[600],
-                              ),
-                            ),
-                            Text(
-                              _formatDistance(totalScrollDistance),
-                              style: TextStyle(
-                                fontSize: 32,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.black,
-                              ),
-                            ),
-                          ],
-                        ),
-                        Text(
-                          '$scrollCount',
-                          style: TextStyle(
-                            fontSize: 32,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.grey[400],
-                          ),
-                        ),
-                      ],
+                  const SizedBox(height: 4),
+                  Text(
+                    'Next: $nextLabel • ${(_uiProgress * 100).toStringAsFixed(0)}%',
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: Colors.white.withOpacity(0.95),
+                      fontWeight: FontWeight.w600,
                     ),
                   ),
-                  const SizedBox(height: 16),
-                  
-                  // Achievement Card
-                  Container(
-                    padding: const EdgeInsets.all(20),
-                    decoration: BoxDecoration(
-                      color: Color(0xFFE3F2FD),
-                      borderRadius: BorderRadius.circular(16),
-                    ),
-                    child: Row(
-                      children: [
-                        Icon(
-                          Icons.emoji_events,
-                          size: 30,
-                          color: Color(0xFF1976D2),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Text(
-                            _getAchievementMessage(),
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w600,
-                              color: Color(0xFF1976D2),
-                            ),
-                          ),
-                        ),
-                      ],
+                  Text(
+                    '(${_fmtDistance(nextMeters)})',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.white.withOpacity(0.85),
                     ),
                   ),
-                  const SizedBox(height: 20),
                 ],
-                
-                // Action Buttons
-                ElevatedButton(
-                  onPressed: _openAccessibilitySettings,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.white,
-                    foregroundColor: Color(0xFF1976D2),
-                    padding: const EdgeInsets.all(16),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
+              ),
+              const SizedBox(height: 16),
+
+              // ---------- Cards Row: Today / Lifetime ----------
+              Row(
+                children: [
+                  Expanded(
+                    child: _statCard(
+                      title: 'Today',
+                      primary: _fmtDistance(dailyDistance),
+                      secondary: '$dailyScrolls scrolls',
                     ),
-                    elevation: 0,
                   ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(Icons.settings),
-                      const SizedBox(width: 8),
-                      Text(
-                        'Open Accessibility Settings',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ],
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: _statCard(
+                      title: 'Lifetime',
+                      primary: _fmtDistance(lifetimeDistance),
+                      secondary: '$lifetimeScrolls scrolls',
+                    ),
                   ),
+                ],
+              ),
+              const SizedBox(height: 16),
+
+              // ---------- Achievement ----------
+              _achievementCard(_achievementBlurb()),
+              const SizedBox(height: 12),
+
+              // ---------- Milestones ----------
+              _milestonesCard(_milestonesForPanel()),
+              const SizedBox(height: 8),
+
+              // Optional guidance / fun line
+              Text(
+                _headline(),
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: Colors.white.withOpacity(0.95),
+                  fontWeight: FontWeight.w600,
                 ),
-                const SizedBox(height: 12),
-                
-                // if (totalScrollDistance > 0)
-                //   OutlinedButton(
-                //     onPressed: () async {
-                //       setState(() {
-                //         totalScrollDistance = 0.0;
-                //         scrollCount = 0;
-                //       });
-                //       await _saveScrollData();
-                //     },
-                //     style: OutlinedButton.styleFrom(
-                //       foregroundColor: Colors.white,
-                //       side: BorderSide(color: Colors.white.withOpacity(0.5)),
-                //       padding: const EdgeInsets.all(16),
-                //       shape: RoundedRectangleBorder(
-                //         borderRadius: BorderRadius.circular(12),
-                //       ),
-                //     ),
-                //     child: Row(
-                //       mainAxisAlignment: MainAxisAlignment.center,
-                //       children: [
-                //         Icon(Icons.refresh),
-                //         const SizedBox(width: 8),
-                //         Text(
-                //           'Reset Counter',
-                //           style: TextStyle(
-                //             fontSize: 16,
-                //             fontWeight: FontWeight.w600,
-                //           ),
-                //         ),
-                //       ],
-                //     ),
-                //   ),
-                
-                const SizedBox(height: 20), // Bottom padding
-              ],
-            ),
+              ),
+            ],
           ),
         ),
       ),
     );
   }
+
+  // ---------- Small UI Builders ----------
+  Widget _statCard({
+    required String title,
+    required String primary,
+    required String secondary,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(title,
+              style: TextStyle(fontSize: 14, color: Colors.grey[600])),
+          const SizedBox(height: 6),
+          Text(
+            primary,
+            style: const TextStyle(
+              fontSize: 28,
+              fontWeight: FontWeight.bold,
+              color: Colors.black,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            secondary,
+            style: TextStyle(
+              fontSize: 13,
+              color: Colors.grey[700],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _achievementCard(String text) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xFFE3F2FD),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.emoji_events, size: 28, color: Color(0xFF1976D2)),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              text,
+              style: const TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF1976D2),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _milestonesCard(List<_MilestoneView> items) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 10),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.flag, size: 20, color: Color(0xFF1976D2)),
+              const SizedBox(width: 8),
+              const Text(
+                'Milestones',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const Spacer(),
+              Text(
+                _fmtDistance(lifetimeDistance),
+                style: TextStyle(
+                  color: Colors.grey[600],
+                  fontSize: 12,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          for (final m in items) _milestoneRow(m),
+        ],
+      ),
+    );
+  }
+
+  Widget _milestoneRow(_MilestoneView m) {
+    final labelStyle = TextStyle(
+      fontSize: 13,
+      fontWeight: FontWeight.w600,
+      color: m.state == _MilestoneState.completed
+          ? const Color(0xFF2E7D32)
+          : Colors.black,
+    );
+    final subStyle = TextStyle(fontSize: 12, color: Colors.grey[700]);
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Row(
+        children: [
+          Icon(
+            m.state == _MilestoneState.completed
+                ? Icons.check_circle
+                : (m.state == _MilestoneState.inProgress
+                    ? Icons.timelapse
+                    : Icons.flag_outlined),
+            size: 18,
+            color: m.state == _MilestoneState.completed
+                ? const Color(0xFF2E7D32)
+                : const Color(0xFF1976D2),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(m.label, style: labelStyle),
+                const SizedBox(height: 4),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(999),
+                  child: LinearProgressIndicator(
+                    value: m.progress,
+                    minHeight: 6,
+                    backgroundColor: Colors.grey[300],
+                    valueColor: AlwaysStoppedAnimation<Color>(
+                      m.state == _MilestoneState.completed
+                          ? const Color(0xFF2E7D32)
+                          : const Color(0xFF1976D2),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Row(
+                  children: [
+                    Text('${(m.progress * 100).toStringAsFixed(0)}%', style: subStyle),
+                    const Spacer(),
+                    Text(_fmtDistance(m.meters), style: subStyle),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ---------- Painter: ring between 200 and 180 ----------
+class RingProgressPainter extends CustomPainter {
+  final double progress; // 0..1
+  final Color backgroundColor;
+  final Color foregroundColor;
+  final double strokeWidth;
+
+  RingProgressPainter({
+    required this.progress,
+    required this.backgroundColor,
+    required this.foregroundColor,
+    required this.strokeWidth,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = size.center(Offset.zero);
+    final radius = (size.shortestSide / 2) - (strokeWidth / 2);
+
+    final bgPaint = Paint()
+      ..color = backgroundColor
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = strokeWidth
+      ..strokeCap = StrokeCap.round;
+
+    final fgPaint = Paint()
+      ..color = foregroundColor
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = strokeWidth
+      ..strokeCap = StrokeCap.round;
+
+    // background ring
+    canvas.drawCircle(center, radius, bgPaint);
+
+    // progress arc
+    final startAngle = -math.pi / 2;
+    final sweepAngle = 2 * math.pi * progress;
+    final rect = Rect.fromCircle(center: center, radius: radius);
+    canvas.drawArc(rect, startAngle, sweepAngle, false, fgPaint);
+  }
+
+  @override
+  bool shouldRepaint(covariant RingProgressPainter old) {
+    return old.progress != progress ||
+        old.backgroundColor != backgroundColor ||
+        old.foregroundColor != foregroundColor ||
+        old.strokeWidth != strokeWidth;
+  }
+}
+
+// ---------- Milestone helpers ----------
+enum _MilestoneState { inProgress, upcoming, completed }
+
+class _MilestoneView {
+  final String label;
+  final double meters;
+  final double progress; // 0..1 relative to lifetimeDistance
+  final _MilestoneState state;
+
+  _MilestoneView({
+    required this.label,
+    required this.meters,
+    required this.progress,
+    required this.state,
+  });
 }

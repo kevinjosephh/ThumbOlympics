@@ -6,7 +6,8 @@
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
         android:allowBackup="true"
-        android:fullBackupContent="true">
+        android:fullBackupContent="true"
+        android:enableOnBackInvokedCallback="true">
         <service
             android:name=".ThumbRestAccessibilityService"
             android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"

@@ -7,7 +7,7 @@ plugins {
 
 android {
     namespace = "com.example.thumbrest"
-    compileSdk = 35
+    compileSdk = 36
     ndkVersion = "27.0.12077973"
 
     compileOptions {
@@ -26,7 +26,7 @@ android {
 
     defaultConfig {
         applicationId = "com.example.thumbrest"
-        minSdk = 21
+        minSdkVersion(24)
         targetSdk = 35
         versionCode = 1
         versionName = "1.0.0"

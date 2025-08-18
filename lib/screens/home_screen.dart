@@ -125,6 +125,7 @@ class _HomeScreenState extends State<HomeScreen>
         dailyScrolls: dailyScrolls,
         lifetimeDistance: lifetimeDistance,
         lifetimeScrolls: lifetimeScrolls,
+        dateKey: lastDateKey,
       );
       _broadcastDataUpdate();
     } catch (e) {
@@ -142,16 +143,32 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   Future<void> _syncData() async {
+    await _ensureDailyBoundary();
     await _saveAllData();
   }
 
-  void _ensureDailyBoundary() async {
+  Future<void> _ensureDailyBoundary() async {
     final today = DataManager.todayKey();
     if (lastDateKey != today) {
+      // Persist previous day's final totals under its own date key
+      final previousDateKey = lastDateKey;
+      try {
+        await _dataManager.saveAllData(
+          dailyDistance: dailyDistance,
+          dailyScrolls: dailyScrolls,
+          lifetimeDistance: lifetimeDistance,
+          lifetimeScrolls: lifetimeScrolls,
+          dateKey: previousDateKey,
+        );
+      } catch (_) {}
+
+      // Rollover to the new day
       lastDateKey = today;
       dailyDistance = 0.0;
       dailyScrolls = 0;
-      setState(() {});
+      if (mounted) setState(() {});
+
+      // Save the zeroed values for the new day
       await _saveAllData();
       _animateProgressTo(_progressToNextGoal());
     }
@@ -180,7 +197,7 @@ class _HomeScreenState extends State<HomeScreen>
   void _recordScrollActivity(double meters) async {
     if (!isAccessibilityEnabled) return;
 
-    _ensureDailyBoundary();
+    await _ensureDailyBoundary();
 
     setState(() {
       dailyDistance += meters;

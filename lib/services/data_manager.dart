@@ -64,26 +64,28 @@ class DataManager {
     }
   }
 
-  // Save all current data
+  // Save all current data for a specific date key
   Future<void> saveAllData({
     required double dailyDistance,
     required int dailyScrolls,
     required double lifetimeDistance,
     required int lifetimeScrolls,
+    // The date key (yyyy-m-d) that the daily values correspond to
+    required String dateKey,
   }) async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final today = todayKey();
 
-      await prefs.setString(_kLastDateKey, today);
+      // Persist the last active date key
+      await prefs.setString(_kLastDateKey, dateKey);
       await prefs.setDouble(_kDailyDistance, dailyDistance);
       await prefs.setInt(_kDailyScrolls, dailyScrolls);
       await prefs.setDouble(_kLifetimeDistance, lifetimeDistance);
       await prefs.setInt(_kLifetimeScrolls, lifetimeScrolls);
 
       // Also save today's data for history
-      await prefs.setDouble('$_kDailyPrefix$today', dailyDistance);
-      await prefs.setInt('${_kDailyPrefix}scrolls_$today', dailyScrolls);
+      await prefs.setDouble('$_kDailyPrefix$dateKey', dailyDistance);
+      await prefs.setInt('${_kDailyPrefix}scrolls_$dateKey', dailyScrolls);
     } catch (e) {
       // Handle error silently for now
     }

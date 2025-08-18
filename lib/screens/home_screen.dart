@@ -395,54 +395,6 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
-  // ---------- Reset Functions ----------
-  Future<void> _resetToday() async {
-    final confirmed = await _showResetDialog('Reset Today\'s Data', 
-        'Are you sure you want to reset today\'s scrolling data?');
-    
-    if (confirmed == true) {
-      await _dataManager.resetDailyData();
-      dailyDistance = 0.0;
-      dailyScrolls = 0;
-      setState(() {});
-      _animateProgressTo(_progressToNextGoal());
-    }
-  }
-
-  Future<void> _resetAll() async {
-    final confirmed = await _showResetDialog('Reset All Data', 
-        'Are you sure you want to reset ALL scrolling data? This cannot be undone.');
-    
-    if (confirmed == true) {
-      await _dataManager.resetAllData();
-      dailyDistance = 0.0;
-      dailyScrolls = 0;
-      lifetimeDistance = 0.0;
-      lifetimeScrolls = 0;
-      setState(() {});
-      _animateProgressTo(_progressToNextGoal());
-    }
-  }
-
-  Future<bool?> _showResetDialog(String title, String content) {
-    return showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text(title),
-        content: Text(content),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('Reset', style: TextStyle(color: Colors.red)),
-          ),
-        ],
-      ),
-    );
-  }
 
   // ---------- UI Build Method ----------
   @override

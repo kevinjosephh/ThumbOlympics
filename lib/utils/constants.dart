@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 
 class AppConstants {
   // Conversion rates
+  // Deprecated: prefer native-provided meters via Android accessibility service
   static const double pixelToMeterConversion = 0.000264583;
-  static const double defaultScrollDistance = 0.15; // meters
+  // Conservative fallback when no native distance is provided
+  static const double defaultScrollDistance = 0.02; // meters (~2 cm) per event fallback
 
   // Milestone distances in meters
   static const Map<String, double> distanceComparisons = {

@@ -180,9 +180,22 @@ class _HomeScreenState extends State<HomeScreen>
       try {
         if (call.arguments is Map) {
           final data = Map<String, dynamic>.from(call.arguments);
-          final pixels = (data['distance'] as num?)?.toDouble() ?? 150.0;
-          final scrollDistance = pixels * AppConstants.pixelToMeterConversion;
-          _recordScrollActivity(scrollDistance);
+          // Prefer distance in meters if provided by native side
+          final meters = (data['distanceMeters'] as num?)?.toDouble();
+          if (meters != null && meters.isFinite && meters > 0) {
+            _recordScrollActivity(meters);
+          } else {
+            // Backward compat: fall back to pixel-based distance if present
+            final pixels = (data['distance'] as num?)?.toDouble();
+            if (pixels != null && pixels > 0) {
+              final scrollDistance = pixels * AppConstants.pixelToMeterConversion;
+              _recordScrollActivity(scrollDistance);
+              print('If Scroll distance: $scrollDistance meters');
+            } else {
+              _recordScrollActivity(AppConstants.defaultScrollDistance);
+              print('Ekse Scroll distance: ${AppConstants.defaultScrollDistance} meters');
+            }
+          }
         } else {
           _recordScrollActivity(AppConstants.defaultScrollDistance);
         }

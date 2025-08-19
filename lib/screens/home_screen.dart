@@ -243,12 +243,12 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   void _checkMilestoneAchievements() {
-    final previousProgress = (lifetimeDistance - AppConstants.defaultScrollDistance);
+    final previousProgress = (dailyDistance - AppConstants.defaultScrollDistance);
     final currentMilestone = _nextGoal();
     
     if (currentMilestone != null && 
         previousProgress < currentMilestone.value && 
-        lifetimeDistance >= currentMilestone.value) {
+        dailyDistance >= currentMilestone.value) {
       _showMilestoneAchievement(currentMilestone.key);
     }
   }
@@ -322,7 +322,7 @@ class _HomeScreenState extends State<HomeScreen>
     final entries = AppConstants.distanceComparisons.entries.toList()
       ..sort((a, b) => a.value.compareTo(b.value));
     for (final e in entries) {
-      if (lifetimeDistance < e.value) return e;
+      if (dailyDistance < e.value) return e;
     }
     return entries.isNotEmpty ? entries.last : null;
   }
@@ -330,7 +330,7 @@ class _HomeScreenState extends State<HomeScreen>
   double _progressToNextGoal() {
     final goal = _nextGoal();
     if (goal == null || goal.value <= 0) return 0.0;
-    return (lifetimeDistance / goal.value).clamp(0.0, 1.0);
+    return (dailyDistance / goal.value).clamp(0.0, 1.0);
   }
 
   List<MilestoneView> _milestonesForPanel() {
@@ -338,10 +338,10 @@ class _HomeScreenState extends State<HomeScreen>
         .map((e) => MilestoneView(
               label: e.key,
               meters: e.value,
-              progress: (lifetimeDistance / e.value).clamp(0.0, 1.0),
-              state: lifetimeDistance >= e.value
+              progress: (dailyDistance / e.value).clamp(0.0, 1.0),
+              state: dailyDistance >= e.value
                   ? MilestoneState.completed
-                  : (lifetimeDistance / e.value >= 0.01
+                  : (dailyDistance / e.value >= 0.01
                       ? MilestoneState.inProgress
                       : MilestoneState.upcoming),
             ))
@@ -372,7 +372,7 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   String _getHeadline() {
-    final p = lifetimeDistance;
+    final p = dailyDistance;
     if (p < 1) return "Baby steps in the scrolling Olympics! 👶";
     if (p < 10) return "You're getting the hang of this! 🤸‍♂️";
     if (p < 50) return "Now we're scrolling! 💪";
@@ -388,15 +388,15 @@ class _HomeScreenState extends State<HomeScreen>
     final items = _milestonesForPanel();
     for (final m in items) {
       if (m.state == MilestoneState.completed) {
-        return "🏁 You just scrolled the height of ${m.label}!";
+        return "🏁 You just scrolled the height of ${m.label} today!";
       }
     }
     for (final m in items) {
       if (m.state == MilestoneState.inProgress && m.progress > 0.1) {
-        return "🎯 ${(m.progress * 100).toStringAsFixed(0)}% of the way to ${m.label}!";
+        return "🎯 ${(m.progress * 100).toStringAsFixed(0)}% of the way to ${m.label} today!";
       }
     }
-    return "🚀 Keep scrolling to reach your first milestone!";
+    return "🚀 Keep scrolling to reach your first milestone today!";
   }
 
   void _showErrorSnackBar(String message) {
@@ -663,7 +663,7 @@ Tap to test accessibility service
     return Column(
       children: [
         Text(
-          _formatDistance(lifetimeDistance),
+          _formatDistance(dailyDistance),
           style: const TextStyle(
             fontSize: 42,
             fontWeight: FontWeight.bold,
@@ -867,7 +867,7 @@ Tap to test accessibility service
               ),
               const Spacer(),
               Text(
-                _formatDistance(lifetimeDistance),
+                _formatDistance(dailyDistance),
                 style: TextStyle(
                   color: Colors.grey[600],
                   fontSize: 12,

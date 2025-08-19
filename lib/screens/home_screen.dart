@@ -190,32 +190,40 @@ class _HomeScreenState extends State<HomeScreen>
       try {
         if (call.arguments is Map) {
           final data = Map<String, dynamic>.from(call.arguments);
+          
+          // Log the scroll event for debugging
+          final packageName = data['packageName'] as String? ?? 'unknown';
+          final isTouchInteraction = data['isTouchInteraction'] as bool? ?? false;
+          
+          print('Scroll event from $packageName (touch: $isTouchInteraction)');
+          
           // Prefer distance in meters if provided by native side
           final meters = (data['distanceMeters'] as num?)?.toDouble();
           if (meters != null && meters.isFinite && meters > 0) {
-            _recordScrollActivity(meters);
+            _recordScrollActivity(meters, packageName);
           } else {
             // Backward compat: fall back to pixel-based distance if present
             final pixels = (data['distance'] as num?)?.toDouble();
             if (pixels != null && pixels > 0) {
               final scrollDistance = pixels * AppConstants.pixelToMeterConversion;
-              _recordScrollActivity(scrollDistance);
+              _recordScrollActivity(scrollDistance, packageName);
             } else {
-              _recordScrollActivity(AppConstants.defaultScrollDistance);
+              _recordScrollActivity(AppConstants.defaultScrollDistance, packageName);
             }
           }
         } else {
-          _recordScrollActivity(AppConstants.defaultScrollDistance);
+          _recordScrollActivity(AppConstants.defaultScrollDistance, 'unknown');
         }
       } catch (e) {
-        _recordScrollActivity(AppConstants.defaultScrollDistance);
+        print('Error handling scroll event: $e');
+        _recordScrollActivity(AppConstants.defaultScrollDistance, 'unknown');
       }
     }
     return null;
   }
 
   // ---------- Scroll Activity Recording ----------
-  void _recordScrollActivity(double meters) async {
+  void _recordScrollActivity(double meters, [String? packageName]) async {
     if (!isAccessibilityEnabled) return;
 
     await _ensureDailyBoundary();
@@ -403,6 +411,53 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
+  void _showDebugInfo() {
+    if (!mounted) return;
+
+    final debugInfo = '''
+Accessibility Status: $isAccessibilityEnabled
+Last Date Key: $lastDateKey
+Daily Distance: ${_formatDistance(dailyDistance)}
+Daily Scrolls: $dailyScrolls
+Lifetime Distance: ${_formatDistance(lifetimeDistance)}
+Lifetime Scrolls: $lifetimeScrolls
+
+Tap to test accessibility service
+''';
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: GestureDetector(
+          onTap: () async {
+            try {
+              await _platform.invokeMethod('testAccessibilityService');
+              ScaffoldMessenger.of(context).hideCurrentSnackBar();
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Test scroll sent to accessibility service!'),
+                  backgroundColor: Colors.green,
+                  duration: Duration(seconds: 2),
+                ),
+              );
+            } catch (e) {
+              ScaffoldMessenger.of(context).hideCurrentSnackBar();
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('Error testing service: $e'),
+                  backgroundColor: Colors.red,
+                  duration: const Duration(seconds: 3),
+                ),
+              );
+            }
+          },
+          child: Text(debugInfo),
+        ),
+        backgroundColor: Colors.blue[100],
+        duration: const Duration(seconds: 10),
+      ),
+    );
+  }
+
 
   // ---------- UI Build Method ----------
   @override
@@ -475,6 +530,13 @@ class _HomeScreenState extends State<HomeScreen>
         ),
         Row(
           children: [
+            IconButton(
+              onPressed: () {
+                _showDebugInfo();
+              },
+              icon: const Icon(Icons.bug_report, color: Colors.white, size: 24),
+              tooltip: 'Debug Info',
+            ),
             IconButton(
               onPressed: () {
                 Navigator.push(

@@ -1,3 +1,6 @@
+import java.util.Properties
+import java.io.FileInputStream
+
 plugins {
     id("com.android.application")
     id("kotlin-android")
@@ -26,19 +29,38 @@ android {
 
     defaultConfig {
         applicationId = "com.example.thumbrest"
-        minSdkVersion(24)
+        minSdk = 24
         targetSdk = 35
         versionCode = 1
         versionName = "1.0.0"
+    }
+
+    // 🔑 Load keystore properties
+    val keystorePropertiesFile = rootProject.file("key.properties")
+    val keystoreProperties = Properties()
+    if (keystorePropertiesFile.exists()) {
+        keystoreProperties.load(FileInputStream(keystorePropertiesFile))
+    }
+
+    signingConfigs {
+        create("release") {
+            keyAlias = keystoreProperties["keyAlias"] as String?
+            keyPassword = keystoreProperties["keyPassword"] as String?
+            storeFile = keystoreProperties["storeFile"]?.let { file(it as String) }
+            storePassword = keystoreProperties["storePassword"] as String?
+        }
     }
 
     buildTypes {
         release {
             isMinifyEnabled = false
             isShrinkResources = false
+            // ✅ Attach signing config for release
+            signingConfig = signingConfigs.getByName("release")
         }
         debug {
             isDebuggable = true
+            // Debug builds will be signed automatically
         }
     }
 }
@@ -49,7 +71,5 @@ flutter {
 
 dependencies {
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
-
     // keep existing dependencies here
 }
-

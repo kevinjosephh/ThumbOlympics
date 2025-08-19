@@ -72,6 +72,16 @@ class _HomeScreenState extends State<HomeScreen>
     Timer.periodic(const Duration(seconds: 30), (timer) {
       _syncData();
     });
+
+    // Lightweight health check: periodically verify the service is still enabled
+    // and refresh state if it was toggled or crashed.
+    Timer.periodic(const Duration(minutes: 2), (timer) async {
+      final enabled = await _isAccessibilityEnabled();
+      if (mounted && enabled != isAccessibilityEnabled) {
+        setState(() => isAccessibilityEnabled = enabled);
+      }
+      if (!mounted) timer.cancel();
+    });
   }
 
   @override
@@ -190,10 +200,8 @@ class _HomeScreenState extends State<HomeScreen>
             if (pixels != null && pixels > 0) {
               final scrollDistance = pixels * AppConstants.pixelToMeterConversion;
               _recordScrollActivity(scrollDistance);
-              print('If Scroll distance: $scrollDistance meters');
             } else {
               _recordScrollActivity(AppConstants.defaultScrollDistance);
-              print('Ekse Scroll distance: ${AppConstants.defaultScrollDistance} meters');
             }
           }
         } else {

@@ -22,6 +22,8 @@ class ThumbRestAccessibilityService : AccessibilityService() {
 
     override fun onServiceConnected() {
         super.onServiceConnected()
+        // Reset internal state when service connects to avoid stale deltas
+        lastOffsets.clear()
         val info = AccessibilityServiceInfo()
         info.eventTypes = AccessibilityEvent.TYPE_VIEW_SCROLLED or AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED
         info.feedbackType = AccessibilityServiceInfo.FEEDBACK_GENERIC
@@ -33,10 +35,21 @@ class ThumbRestAccessibilityService : AccessibilityService() {
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         event?.let {
             try {
+                if (it.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
+                    // Reset offsets on window changes to avoid stale deltas or jumps
+                    lastOffsets.clear()
+                    return
+                }
+
                 if (it.eventType == AccessibilityEvent.TYPE_VIEW_SCROLLED) {
                     val currentY = it.scrollY
                     val currentX = it.scrollX
                     val windowId = it.windowId
+
+                    // Ignore invalid values sometimes reported by certain views
+                    if ((currentY < 0 && currentX < 0) || windowId < 0) {
+                        return
+                    }
 
                     val prev = lastOffsets[windowId]
                     val deltaYpx = if (prev != null) abs(currentY - prev.first) else 0
@@ -56,9 +69,12 @@ class ThumbRestAccessibilityService : AccessibilityService() {
                     // Total distance moved along the scroll plane
                     val distanceMeters = hypot(metersX, metersY)
 
-                    if (distanceMeters > 0f) {
+                    // Guard against improbable spikes to reduce risk of ANRs/exceptions downstream
+                    val clampedDistance = if (distanceMeters.isFinite()) distanceMeters.coerceAtMost(5.0f) else 0f
+
+                    if (clampedDistance > 0f) {
                         val scrollData = mapOf(
-                            "distanceMeters" to distanceMeters.toDouble(),
+                            "distanceMeters" to clampedDistance.toDouble(),
                             "timestamp" to System.currentTimeMillis()
                         )
                         channel?.invokeMethod("onScroll", scrollData)
@@ -72,5 +88,20 @@ class ThumbRestAccessibilityService : AccessibilityService() {
 
     override fun onInterrupt() {
         // Service interrupted
+    }
+
+    override fun onUnbind(intent: android.content.Intent?): Boolean {
+        lastOffsets.clear()
+        return super.onUnbind(intent)
+    }
+
+    override fun onDestroy() {
+        lastOffsets.clear()
+        // Do not hold stale channel references
+        try {
+            // Best-effort: if app recreates engine it will set the channel again
+        } finally {
+            super.onDestroy()
+        }
     }
 }

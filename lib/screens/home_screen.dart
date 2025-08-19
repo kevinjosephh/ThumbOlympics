@@ -23,6 +23,7 @@ class _HomeScreenState extends State<HomeScreen>
   int lifetimeScrolls = 0;
   String lastDateKey = DataManager.todayKey();
   bool isAccessibilityEnabled = false;
+  List<MapEntry<String, double>> appLeaderboard = [];
 
   // Animation controllers
   late final AnimationController _pulseCtrl;
@@ -64,6 +65,9 @@ class _HomeScreenState extends State<HomeScreen>
 
     // Set up platform channel handler
     _platform.setMethodCallHandler(_handleMethodCall);
+
+    // Load app leaderboard
+    _loadAppLeaderboard();
 
     // Check accessibility status
     _checkAccessibilityAndStart();
@@ -128,6 +132,19 @@ class _HomeScreenState extends State<HomeScreen>
     }
   }
 
+  Future<void> _loadAppLeaderboard() async {
+    try {
+      final leaderboard = await _dataManager.getAppLeaderboard();
+      if (mounted) {
+        setState(() {
+          appLeaderboard = leaderboard;
+        });
+      }
+    } catch (e) {
+      // Handle error silently
+    }
+  }
+
   Future<void> _saveAllData() async {
     try {
       await _dataManager.saveAllData(
@@ -188,6 +205,10 @@ class _HomeScreenState extends State<HomeScreen>
   Future<dynamic> _handleMethodCall(MethodCall call) async {
     if (call.method == 'onScroll') {
       try {
+        // Receiving a scroll event implies the accessibility service is active
+        if (mounted && !isAccessibilityEnabled) {
+          setState(() => isAccessibilityEnabled = true);
+        }
         if (call.arguments is Map) {
           final data = Map<String, dynamic>.from(call.arguments);
           
@@ -235,8 +256,16 @@ class _HomeScreenState extends State<HomeScreen>
       lifetimeScrolls += 1;
     });
 
+    // Save app-specific data if package name is provided
+    if (packageName != null && packageName != 'unknown' && packageName != 'test') {
+      await _dataManager.saveAppData(packageName, meters);
+    }
+
     await _saveAllData();
     _animateProgressTo(_progressToNextGoal());
+    
+    // Refresh app leaderboard
+    _loadAppLeaderboard();
     
     // Check for milestone achievements
     _checkMilestoneAchievements();
@@ -411,54 +440,6 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
-  void _showDebugInfo() {
-    if (!mounted) return;
-
-    final debugInfo = '''
-Accessibility Status: $isAccessibilityEnabled
-Last Date Key: $lastDateKey
-Daily Distance: ${_formatDistance(dailyDistance)}
-Daily Scrolls: $dailyScrolls
-Lifetime Distance: ${_formatDistance(lifetimeDistance)}
-Lifetime Scrolls: $lifetimeScrolls
-
-Tap to test accessibility service
-''';
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: GestureDetector(
-          onTap: () async {
-            try {
-              await _platform.invokeMethod('testAccessibilityService');
-              ScaffoldMessenger.of(context).hideCurrentSnackBar();
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Test scroll sent to accessibility service!'),
-                  backgroundColor: Colors.green,
-                  duration: Duration(seconds: 2),
-                ),
-              );
-            } catch (e) {
-              ScaffoldMessenger.of(context).hideCurrentSnackBar();
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text('Error testing service: $e'),
-                  backgroundColor: Colors.red,
-                  duration: const Duration(seconds: 3),
-                ),
-              );
-            }
-          },
-          child: Text(debugInfo),
-        ),
-        backgroundColor: Colors.blue[100],
-        duration: const Duration(seconds: 10),
-      ),
-    );
-  }
-
-
   // ---------- UI Build Method ----------
   @override
   Widget build(BuildContext context) {
@@ -507,6 +488,10 @@ Tap to test accessibility service
               _buildMilestonesCard(),
               const SizedBox(height: 12),
 
+              // ---------- App Leaderboard Card ----------
+              _buildAppLeaderboardCard(),
+              const SizedBox(height: 12),
+
               // ---------- Headline ----------
               _buildHeadline(),
             ],
@@ -530,13 +515,6 @@ Tap to test accessibility service
         ),
         Row(
           children: [
-            IconButton(
-              onPressed: () {
-                _showDebugInfo();
-              },
-              icon: const Icon(Icons.bug_report, color: Colors.white, size: 24),
-              tooltip: 'Debug Info',
-            ),
             IconButton(
               onPressed: () {
                 Navigator.push(
@@ -977,5 +955,221 @@ Tap to test accessibility service
         ),
       ),
     );
+  }
+
+  Widget _buildAppLeaderboardCard() {
+    if (appLeaderboard.isEmpty) {
+      return Container(
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.1),
+              blurRadius: 10,
+              offset: const Offset(0, 5),
+            ),
+          ],
+        ),
+        child: Column(
+          children: [
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF1976D2).withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(Icons.leaderboard, size: 16, color: Color(0xFF1976D2)),
+                ),
+                const SizedBox(width: 8),
+                const Text(
+                  'App Leaderboard',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.black87,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'No app data yet. Start scrolling to see your top apps!',
+              style: TextStyle(
+                fontSize: 14,
+                color: Colors.grey[600],
+                fontStyle: FontStyle.italic,
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+      );
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.1),
+            blurRadius: 10,
+            offset: const Offset(0, 5),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF1976D2).withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(Icons.leaderboard, size: 16, color: Color(0xFF1976D2)),
+              ),
+              const SizedBox(width: 8),
+              const Text(
+                'App Leaderboard',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.black87,
+                ),
+              ),
+              const Spacer(),
+              Text(
+                'Today',
+                style: TextStyle(
+                  color: Colors.grey[600],
+                  fontSize: 12,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          ...appLeaderboard.take(5).toList().asMap().entries.map((entry) {
+            final index = entry.key;
+            final app = entry.value;
+            final isTopThree = index < 3;
+            
+            return Container(
+                             margin: EdgeInsets.only(bottom: index < appLeaderboard.take(5).toList().length - 1 ? 12 : 0),
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: isTopThree ? const Color(0xFF1976D2).withOpacity(0.05) : Colors.grey[50],
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: isTopThree ? const Color(0xFF1976D2).withOpacity(0.2) : Colors.grey.withOpacity(0.2),
+                  width: 1,
+                ),
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    width: 32,
+                    height: 32,
+                    decoration: BoxDecoration(
+                      color: isTopThree ? const Color(0xFF1976D2) : Colors.grey[400],
+                      shape: BoxShape.circle,
+                    ),
+                    child: Center(
+                      child: Text(
+                        '${index + 1}',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 14,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          _getAppDisplayName(app.key),
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                            color: isTopThree ? Colors.black87 : Colors.grey[700],
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                          maxLines: 1,
+                        ),
+                        Text(
+                          _formatDistance(app.value),
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: isTopThree ? const Color(0xFF1976D2) : Colors.grey[600],
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (isTopThree) ...[
+                    Icon(
+                      index == 0 ? Icons.emoji_events : (index == 1 ? Icons.workspace_premium : Icons.star),
+                      color: index == 0 ? Colors.amber : (index == 1 ? Colors.grey : Colors.orange),
+                      size: 20,
+                    ),
+                  ],
+                ],
+              ),
+            );
+          }),
+        ],
+      ),
+    );
+  }
+
+  String _getAppDisplayName(String packageName) {
+    // Convert package names to more readable names
+    switch (packageName) {
+      case 'com.instagram.android':
+        return 'Instagram';
+      case 'com.google.android.youtube':
+        return 'YouTube';
+      case 'com.facebook.katana':
+        return 'Facebook';
+      case 'com.twitter.android':
+        return 'Twitter';
+      case 'com.whatsapp':
+        return 'WhatsApp';
+      case 'com.spotify.music':
+        return 'Spotify';
+      case 'com.netflix.mediaclient':
+        return 'Netflix';
+      case 'com.reddit.frontpage':
+        return 'Reddit';
+      case 'com.snapchat.android':
+        return 'Snapchat';
+      case 'com.discord':
+        return 'Discord';
+      case 'com.zhiliaoapp.musically':
+        return 'TikTok';
+      default:
+        // Try to make package name more readable
+        final parts = packageName.split('.');
+        if (parts.length > 1) {
+          final lastPart = parts.last;
+          if (lastPart != 'android' && lastPart != 'app') {
+            return lastPart[0].toUpperCase() + lastPart.substring(1);
+          }
+        }
+        return packageName.split('.').last;
+    }
   }
 }

@@ -13,6 +13,9 @@ class DataManager {
   static const String _kLifetimeScrolls = 'lifetimeScrolls';
   static const String _kLastDateKey = 'lastDateKey';
   static const String _kDailyPrefix = 'daily_';
+  static const String _kAppDataPrefix = 'app_';
+  static const String _kDailyAppDataPrefix = 'daily_app_';
+  static const String _kWeeklyAppDataPrefix = 'weekly_app_';
 
   // Get today's key
   static String todayKey() {
@@ -225,5 +228,95 @@ class DataManager {
     }
     
     return weekData;
+  }
+
+  // Save app-specific data for today
+  Future<void> saveAppData(String packageName, double distance) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final today = todayKey();
+      
+      // Get current app data for today
+      final currentData = await getDailyAppData();
+      final currentDistance = currentData[packageName] ?? 0.0;
+      final newDistance = currentDistance + distance;
+      
+      // Save updated data
+      await prefs.setDouble('$_kDailyAppDataPrefix$today:$packageName', newDistance);
+    } catch (e) {
+      // Handle error silently
+    }
+  }
+
+  // Get daily app data
+  Future<Map<String, double>> getDailyAppData() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final today = todayKey();
+      final keys = prefs.getKeys();
+      Map<String, double> appData = {};
+
+      for (String key in keys) {
+        if (key.startsWith('$_kDailyAppDataPrefix$today:')) {
+          final packageName = key.substring('$_kDailyAppDataPrefix$today:'.length);
+          final distance = prefs.getDouble(key) ?? 0.0;
+          if (distance > 0) {
+            appData[packageName] = distance;
+          }
+        }
+      }
+
+      return appData;
+    } catch (e) {
+      return {};
+    }
+  }
+
+  // Get weekly app data
+  Future<Map<String, double>> getWeeklyAppData(DateTime weekStart) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final keys = prefs.getKeys();
+      Map<String, double> weeklyAppData = {};
+
+      // Collect data for each day of the week
+      for (int i = 0; i < 7; i++) {
+        final date = weekStart.add(Duration(days: i));
+        final currentDateKey = dateKey(date);
+
+        for (String key in keys) {
+          if (key.startsWith('$_kDailyAppDataPrefix$currentDateKey:')) {
+            final packageName = key.substring('$_kDailyAppDataPrefix$currentDateKey:'.length);
+            final distance = prefs.getDouble(key) ?? 0.0;
+            weeklyAppData[packageName] = (weeklyAppData[packageName] ?? 0.0) + distance;
+          }
+        }
+      }
+
+      return weeklyAppData;
+    } catch (e) {
+      return {};
+    }
+  }
+
+  // Get app leaderboard (sorted by distance)
+  Future<List<MapEntry<String, double>>> getAppLeaderboard({bool isWeekly = false, DateTime? weekStart}) async {
+    try {
+      Map<String, double> appData;
+      
+      if (isWeekly && weekStart != null) {
+        appData = await getWeeklyAppData(weekStart);
+      } else {
+        appData = await getDailyAppData();
+      }
+
+      // Convert to list and sort by distance (descending)
+      final sortedList = appData.entries.toList()
+        ..sort((a, b) => b.value.compareTo(a.value));
+
+      return sortedList;
+    } catch (e) {
+      return [];
+    }
   }
 }

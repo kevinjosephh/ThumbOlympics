@@ -16,6 +16,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
   Map<String, Map<String, dynamic>> weeklyData = {};
   final List<String> weekDays = const ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
   bool isLoading = true;
+  List<MapEntry<String, double>> weeklyAppLeaderboard = [];
 
   final DataManager _dataManager = DataManager();
 
@@ -30,8 +31,10 @@ class _HistoryScreenState extends State<HistoryScreen> {
     try {
       final startOfWeek = AppConstants.getStartOfWeek(selectedWeek);
       final data = await _dataManager.getWeeklyData(startOfWeek);
+      final leaderboard = await _dataManager.getAppLeaderboard(isWeekly: true, weekStart: startOfWeek);
       setState(() {
         weeklyData = data;
+        weeklyAppLeaderboard = leaderboard;
         isLoading = false;
       });
     } catch (e) {
@@ -173,6 +176,8 @@ class _HistoryScreenState extends State<HistoryScreen> {
                                 _buildMilestonesSection(milestones),
                                 const SizedBox(height: 20),
                               ],
+                              _buildWeeklyAppLeaderboard(),
+                              const SizedBox(height: 20),
                               _buildWeeklyInsights(),
                               const SizedBox(height: 20),
                             ],
@@ -873,5 +878,220 @@ class _HistoryScreenState extends State<HistoryScreen> {
       }
     });
     return bestDay;
+  }
+
+  Widget _buildWeeklyAppLeaderboard() {
+    if (weeklyAppLeaderboard.isEmpty) {
+      return Container(
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(AppConstants.defaultBorderRadius),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.08),
+              blurRadius: 10,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Column(
+          children: [
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: AppConstants.primaryBlue.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(Icons.leaderboard, size: 16, color: AppConstants.primaryBlue),
+                ),
+                const SizedBox(width: 8),
+                const Text(
+                  'Weekly App Leaderboard',
+                  style: AppConstants.titleStyle,
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'No app data for this week. Start scrolling to see your top apps!',
+              style: TextStyle(
+                fontSize: 14,
+                color: Colors.grey[600],
+                fontStyle: FontStyle.italic,
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+      );
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(AppConstants.defaultBorderRadius),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.08),
+            blurRadius: 10,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: AppConstants.primaryBlue.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(Icons.leaderboard, size: 16, color: AppConstants.primaryBlue),
+              ),
+              const SizedBox(width: 8),
+              const Text(
+                'Weekly App Leaderboard',
+                style: AppConstants.titleStyle,
+              ),
+              const Spacer(),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: AppConstants.primaryBlue,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  '${weeklyAppLeaderboard.length}',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          ...weeklyAppLeaderboard.take(5).toList().asMap().entries.map((entry) {
+            final index = entry.key;
+            final app = entry.value;
+            final isTopThree = index < 3;
+            
+            return Container(
+              margin: EdgeInsets.only(bottom: index < weeklyAppLeaderboard.take(5).toList().length - 1 ? 12 : 0),
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: isTopThree ? AppConstants.primaryBlue.withOpacity(0.05) : Colors.grey[50],
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: isTopThree ? AppConstants.primaryBlue.withOpacity(0.2) : Colors.grey.withOpacity(0.2),
+                  width: 1,
+                ),
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    width: 32,
+                    height: 32,
+                    decoration: BoxDecoration(
+                      color: isTopThree ? AppConstants.primaryBlue : Colors.grey[400],
+                      shape: BoxShape.circle,
+                    ),
+                    child: Center(
+                      child: Text(
+                        '${index + 1}',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 14,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          _getAppDisplayName(app.key),
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                            color: isTopThree ? Colors.black87 : Colors.grey[700],
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                          maxLines: 1,
+                        ),
+                        Text(
+                          AppConstants.formatDistance(app.value),
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: isTopThree ? AppConstants.primaryBlue : Colors.grey[600],
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (isTopThree) ...[
+                    Icon(
+                      index == 0 ? Icons.emoji_events : (index == 1 ? Icons.workspace_premium : Icons.star),
+                      color: index == 0 ? Colors.amber : (index == 1 ? Colors.grey : Colors.orange),
+                      size: 20,
+                    ),
+                  ],
+                ],
+              ),
+            );
+          }),
+        ],
+      ),
+    );
+  }
+
+  String _getAppDisplayName(String packageName) {
+    // Convert package names to more readable names
+    switch (packageName) {
+      case 'com.instagram.android':
+        return 'Instagram';
+      case 'com.google.android.youtube':
+        return 'YouTube';
+      case 'com.facebook.katana':
+        return 'Facebook';
+      case 'com.twitter.android':
+        return 'Twitter';
+      case 'com.whatsapp':
+        return 'WhatsApp';
+      case 'com.spotify.music':
+        return 'Spotify';
+      case 'com.netflix.mediaclient':
+        return 'Netflix';
+      case 'com.reddit.frontpage':
+        return 'Reddit';
+      case 'com.snapchat.android':
+        return 'Snapchat';
+      case 'com.discord':
+        return 'Discord';
+      case 'com.zhiliaoapp.musically':
+        return 'TikTok';
+      default:
+        // Try to make package name more readable
+        final parts = packageName.split('.');
+        if (parts.length > 1) {
+          final lastPart = parts.last;
+          if (lastPart != 'android' && lastPart != 'app') {
+            return lastPart[0].toUpperCase() + lastPart.substring(1);
+          }
+        }
+        return packageName.split('.').last;
+    }
   }
 }

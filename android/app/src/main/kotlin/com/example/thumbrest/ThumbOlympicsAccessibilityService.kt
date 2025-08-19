@@ -4,9 +4,11 @@ import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.AccessibilityServiceInfo
 import android.view.accessibility.AccessibilityEvent
 import android.util.Log
+import android.content.Context
 import io.flutter.plugin.common.MethodChannel
 import kotlin.math.abs
 import kotlin.math.hypot
+import java.util.Calendar
 
 class ThumbRestAccessibilityService : AccessibilityService() {
 
@@ -108,11 +110,35 @@ class ThumbRestAccessibilityService : AccessibilityService() {
         }
 
         val prev = lastOffsets[windowId]
-        val deltaYpx = if (prev != null) abs(currentY - prev.first) else 0
-        val deltaXpx = if (prev != null) abs(currentX - prev.second) else 0
+        var deltaYpx = if (prev != null) abs(currentY - prev.first) else 0
+        var deltaXpx = if (prev != null) abs(currentX - prev.second) else 0
 
         // Update last offsets for this window
         lastOffsets[windowId] = Pair(currentY, currentX)
+
+        // Some apps (e.g., YouTube) report zero scrollX/Y but provide scroll deltas (API 28+)
+        if (deltaYpx == 0 && deltaXpx == 0) {
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+                val dy = kotlin.math.abs(event.scrollDeltaY)
+                val dx = kotlin.math.abs(event.scrollDeltaX)
+                if (dy > 0 || dx > 0) {
+                    deltaYpx = dy
+                    deltaXpx = dx
+                }
+            }
+        }
+
+        // Fallback: infer distance from list index changes when pixel deltas are unavailable
+        if (deltaYpx == 0 && deltaXpx == 0) {
+            val fromIdx = event.fromIndex
+            val toIdx = event.toIndex
+            if (fromIdx >= 0 && toIdx >= 0 && fromIdx != toIdx) {
+                val dmTmp = resources.displayMetrics
+                val approxItemPx = (100f * dmTmp.density).toInt() // ~100dp per row
+                val steps = kotlin.math.abs(toIdx - fromIdx)
+                deltaYpx = approxItemPx * steps
+            }
+        }
 
         // Convert pixel deltas to meters using device physical DPI
         val dm = resources.displayMetrics
@@ -136,8 +162,87 @@ class ThumbRestAccessibilityService : AccessibilityService() {
                 "isTouchInteraction" to isTouchInteraction
             )
             Log.d(TAG, "Sending scroll data: ${clampedDistance}m from $packageName")
-            channel?.invokeMethod("onScroll", scrollData)
+
+            val ch = channel
+            if (ch != null) {
+                try {
+                    ch.invokeMethod("onScroll", scrollData)
+                } catch (e: Exception) {
+                    Log.w(TAG, "Channel present but failed to send; persisting locally", e)
+                    persistScrollLocally(clampedDistance.toDouble(), packageName)
+                }
+            } else {
+                // Flutter engine not attached; persist locally so the app can read it later
+                persistScrollLocally(clampedDistance.toDouble(), packageName)
+            }
         }
+    }
+
+    private fun persistScrollLocally(distanceMeters: Double, packageName: String) {
+        try {
+            val prefs = applicationContext.getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
+
+            // Keys must match Flutter side in DataManager
+            val todayKey = getTodayKey()
+
+            // Read existing totals
+            val dailyDistance = java.lang.Double.longBitsToDouble(
+                prefs.getLong("flutter.dailyDistance", java.lang.Double.doubleToRawLongBits(0.0))
+            )
+            val lifetimeDistance = java.lang.Double.longBitsToDouble(
+                prefs.getLong("flutter.lifetimeDistance", java.lang.Double.doubleToRawLongBits(0.0))
+            )
+            val dailyScrolls = prefs.getInt("flutter.dailyScrolls", 0)
+            val lifetimeScrolls = prefs.getInt("flutter.lifetimeScrolls", 0)
+            val lastDateKey = prefs.getString("flutter.lastDateKey", todayKey)
+
+            val editor = prefs.edit()
+
+            // Day rollover handling
+            if (lastDateKey != todayKey) {
+                // Persist the previous day's final totals under its own date keys
+                val prevDay = lastDateKey ?: todayKey
+                editor.putLong("flutter.daily_${'$'}prevDay", java.lang.Double.doubleToRawLongBits(dailyDistance))
+                editor.putInt("flutter.daily_scrolls_${'$'}prevDay", dailyScrolls)
+                // Reset counters for new day
+                editor.putString("flutter.lastDateKey", todayKey)
+                editor.putLong("flutter.dailyDistance", java.lang.Double.doubleToRawLongBits(0.0))
+                editor.putInt("flutter.dailyScrolls", 0)
+            }
+
+            // Update running totals
+            val newDailyDistance = if (lastDateKey == todayKey) dailyDistance + distanceMeters else distanceMeters
+            val newLifetimeDistance = lifetimeDistance + distanceMeters
+            val newDailyScrolls = if (lastDateKey == todayKey) dailyScrolls + 1 else 1
+            val newLifetimeScrolls = lifetimeScrolls + 1
+
+            editor.putLong("flutter.dailyDistance", java.lang.Double.doubleToRawLongBits(newDailyDistance))
+            editor.putInt("flutter.dailyScrolls", newDailyScrolls)
+            editor.putLong("flutter.lifetimeDistance", java.lang.Double.doubleToRawLongBits(newLifetimeDistance))
+            editor.putInt("flutter.lifetimeScrolls", newLifetimeScrolls)
+            editor.putString("flutter.lastDateKey", todayKey)
+
+            // Save today's per-app distance
+            if (packageName.isNotEmpty() && packageName != "unknown" && packageName != "test") {
+                val appKey = "flutter.daily_app_${'$'}todayKey:${'$'}packageName"
+                val existingApp = java.lang.Double.longBitsToDouble(
+                    prefs.getLong(appKey, java.lang.Double.doubleToRawLongBits(0.0))
+                )
+                editor.putLong(appKey, java.lang.Double.doubleToRawLongBits(existingApp + distanceMeters))
+            }
+
+            editor.apply()
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to persist scroll locally", e)
+        }
+    }
+
+    private fun getTodayKey(): String {
+        val cal = Calendar.getInstance()
+        val y = cal.get(Calendar.YEAR)
+        val m = cal.get(Calendar.MONTH) + 1
+        val d = cal.get(Calendar.DAY_OF_MONTH)
+        return "${'$'}y-${'$'}m-${'$'}d"
     }
 
     override fun onInterrupt() {

@@ -167,43 +167,50 @@ class ThumbRestAccessibilityService : AccessibilityService() {
             if (ch != null) {
                 try {
                     ch.invokeMethod("onScroll", scrollData)
+                    Log.d(TAG, "Successfully sent scroll data via channel")
                 } catch (e: Exception) {
                     Log.w(TAG, "Channel present but failed to send; persisting locally", e)
                     persistScrollLocally(clampedDistance.toDouble(), packageName)
                 }
             } else {
-                // Flutter engine not attached; persist locally so the app can read it later
+                Log.d(TAG, "Channel is null; persisting locally")
                 persistScrollLocally(clampedDistance.toDouble(), packageName)
             }
+            
+            // CRITICAL FIX: Always persist locally as backup, even if channel send appears successful
+            // This ensures data is never lost due to FlutterJNI detachment or other silent failures
+            persistScrollLocally(clampedDistance.toDouble(), packageName)
         }
     }
 
     private fun persistScrollLocally(distanceMeters: Double, packageName: String) {
         try {
+            Log.d(TAG, "Starting persistScrollLocally with distance: $distanceMeters, package: $packageName")
             val prefs = applicationContext.getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
 
             // Keys must match Flutter side in DataManager
             val todayKey = getTodayKey()
 
-            // Read existing totals
-            val dailyDistance = java.lang.Double.longBitsToDouble(
-                prefs.getLong("flutter.dailyDistance", java.lang.Double.doubleToRawLongBits(0.0))
-            )
-            val lifetimeDistance = java.lang.Double.longBitsToDouble(
-                prefs.getLong("flutter.lifetimeDistance", java.lang.Double.doubleToRawLongBits(0.0))
-            )
-            val dailyScrolls = prefs.getInt("flutter.dailyScrolls", 0)
-            val lifetimeScrolls = prefs.getInt("flutter.lifetimeScrolls", 0)
-            val lastDateKey = prefs.getString("flutter.lastDateKey", todayKey)
+            // Read existing totals with type-safe handling
+            val dailyDistance = readDoubleFromPrefs(prefs, "flutter.dailyDistance", 0.0)
+            val lifetimeDistance = readDoubleFromPrefs(prefs, "flutter.lifetimeDistance", 0.0)
+            
+            val dailyScrolls = readIntFromPrefs(prefs, "flutter.dailyScrolls", 0)
+            val lifetimeScrolls = readIntFromPrefs(prefs, "flutter.lifetimeScrolls", 0)
+            val lastDateKey = prefs.getString("flutter.lastDateKey", todayKey) ?: todayKey
 
             val editor = prefs.edit()
 
+            Log.d(TAG, "Current data - Daily: $dailyDistance, Lifetime: $lifetimeDistance, LastDate: $lastDateKey, Today: $todayKey")
+
             // Day rollover handling
             if (lastDateKey != todayKey) {
+                Log.d(TAG, "Day rollover detected: $lastDateKey -> $todayKey")
                 // Persist the previous day's final totals under its own date keys
-                val prevDay = lastDateKey ?: todayKey
-                editor.putLong("flutter.daily_${'$'}prevDay", java.lang.Double.doubleToRawLongBits(dailyDistance))
-                editor.putInt("flutter.daily_scrolls_${'$'}prevDay", dailyScrolls)
+                val prevDay = lastDateKey
+                // Use the exact same key format that Flutter DataManager expects
+                editor.putLong("flutter.daily_$prevDay", java.lang.Double.doubleToRawLongBits(dailyDistance))
+                editor.putInt("flutter.daily_scrolls_$prevDay", dailyScrolls)
                 // Reset counters for new day
                 editor.putString("flutter.lastDateKey", todayKey)
                 editor.putLong("flutter.dailyDistance", java.lang.Double.doubleToRawLongBits(0.0))
@@ -216,11 +223,21 @@ class ThumbRestAccessibilityService : AccessibilityService() {
             val newDailyScrolls = if (lastDateKey == todayKey) dailyScrolls + 1 else 1
             val newLifetimeScrolls = lifetimeScrolls + 1
 
+            // Update current day totals
             editor.putLong("flutter.dailyDistance", java.lang.Double.doubleToRawLongBits(newDailyDistance))
             editor.putInt("flutter.dailyScrolls", newDailyScrolls)
             editor.putLong("flutter.lifetimeDistance", java.lang.Double.doubleToRawLongBits(newLifetimeDistance))
             editor.putInt("flutter.lifetimeScrolls", newLifetimeScrolls)
             editor.putString("flutter.lastDateKey", todayKey)
+
+            // CRITICAL: Always save today's data to historical keys so Flutter can read it
+            // This ensures data persists even if app is killed
+            editor.putLong("flutter.daily_${'$'}todayKey", java.lang.Double.doubleToRawLongBits(newDailyDistance))
+            editor.putInt("flutter.daily_scrolls_${'$'}todayKey", newDailyScrolls)
+            
+            // Also ensure lifetime totals are updated in case Flutter reads them directly
+            editor.putLong("flutter.lifetimeDistance", java.lang.Double.doubleToRawLongBits(newLifetimeDistance))
+            editor.putInt("flutter.lifetimeScrolls", newLifetimeScrolls)
 
             // Save today's per-app distance
             if (packageName.isNotEmpty() && packageName != "unknown" && packageName != "test") {
@@ -231,9 +248,17 @@ class ThumbRestAccessibilityService : AccessibilityService() {
                 editor.putLong(appKey, java.lang.Double.doubleToRawLongBits(existingApp + distanceMeters))
             }
 
-            editor.apply()
+            // Use commit() instead of apply() to ensure immediate write
+            val success = editor.commit()
+            
+            if (success) {
+                Log.d(TAG, "Data persisted locally - Daily: ${newDailyDistance}m (${newDailyScrolls} scrolls), Lifetime: ${newLifetimeDistance}m (${newLifetimeScrolls} scrolls)")
+            } else {
+                Log.e(TAG, "Failed to commit data to SharedPreferences")
+            }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to persist scroll locally", e)
+            e.printStackTrace()
         }
     }
 
@@ -265,6 +290,51 @@ class ThumbRestAccessibilityService : AccessibilityService() {
             // Best-effort: if app recreates engine it will set the channel again
         } finally {
             super.onDestroy()
+        }
+    }
+    
+    // Helper functions to safely read SharedPreferences with type conversion
+    private fun readDoubleFromPrefs(prefs: android.content.SharedPreferences, key: String, defaultValue: Double): Double {
+        return try {
+            // Try to read as Long first (proper double storage)
+            java.lang.Double.longBitsToDouble(
+                prefs.getLong(key, java.lang.Double.doubleToRawLongBits(defaultValue))
+            )
+        } catch (e: ClassCastException) {
+            try {
+                // Fallback: try to read as String and parse
+                val stringValue = prefs.getString(key, defaultValue.toString())
+                stringValue?.toDoubleOrNull() ?: defaultValue
+            } catch (e2: Exception) {
+                Log.w(TAG, "Error reading $key as double, using default $defaultValue", e2)
+                defaultValue
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Error reading $key, using default $defaultValue", e)
+            defaultValue
+        }
+    }
+    
+    private fun readIntFromPrefs(prefs: android.content.SharedPreferences, key: String, defaultValue: Int): Int {
+        return try {
+            prefs.getInt(key, defaultValue)
+        } catch (e: ClassCastException) {
+            try {
+                // Fallback: try to read as String and parse
+                val stringValue = prefs.getString(key, defaultValue.toString())
+                stringValue?.toIntOrNull() ?: defaultValue
+            } catch (e2: Exception) {
+                try {
+                    // Fallback: try to read as Long and convert
+                    prefs.getLong(key, defaultValue.toLong()).toInt()
+                } catch (e3: Exception) {
+                    Log.w(TAG, "Error reading $key as int, using default $defaultValue", e3)
+                    defaultValue
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Error reading $key, using default $defaultValue", e)
+            defaultValue
         }
     }
 }

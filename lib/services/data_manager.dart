@@ -42,6 +42,24 @@ class DataManager {
       if (savedDate == today) {
         dailyDistance = prefs.getDouble(_kDailyDistance) ?? 0.0;
         dailyScrolls = prefs.getInt(_kDailyScrolls) ?? 0;
+        
+        // CRITICAL FIX: If app was killed, accessibility service may have persisted data
+        // Check historical keys for today's data that might be more recent
+        final historicalDistance = prefs.getDouble('$_kDailyPrefix$today') ?? 0.0;
+        final historicalScrolls = prefs.getInt('${_kDailyPrefix}scrolls_$today') ?? 0;
+        
+        print('DataManager: Current daily: $dailyDistance, historical: $historicalDistance');
+        print('DataManager: Current scrolls: $dailyScrolls, historical: $historicalScrolls');
+        
+        // Use the higher value (in case accessibility service updated while app was killed)
+        if (historicalDistance > dailyDistance) {
+          dailyDistance = historicalDistance;
+          print('DataManager: Using historical distance: $historicalDistance');
+        }
+        if (historicalScrolls > dailyScrolls) {
+          dailyScrolls = historicalScrolls;
+          print('DataManager: Using historical scrolls: $historicalScrolls');
+        }
       }
 
       final lifetimeDistance = prefs.getDouble(_kLifetimeDistance) ?? 0.0;

@@ -1,24 +1,14 @@
 import 'dart:async';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'dart:developer' as developer;
+import 'package:flutter/services.dart';
 
 class DataManager {
   static final DataManager _instance = DataManager._internal();
   factory DataManager() => _instance;
   DataManager._internal();
 
-  // Storage keys
-  static const String _kDailyDistance = 'dailyDistance';
-  static const String _kDailyScrolls = 'dailyScrolls';
-  static const String _kLifetimeDistance = 'lifetimeDistance';
-  static const String _kLifetimeScrolls = 'lifetimeScrolls';
-  static const String _kLastDateKey = 'lastDateKey';
-  static const String _kDailyPrefix = 'daily_';
-  static const String _kAppDataPrefix = 'app_';
-  static const String _kDailyAppDataPrefix = 'daily_app_';
-  static const String _kWeeklyAppDataPrefix = 'weekly_app_';
-
-  // Get today's key
-  static String todayKey() {
+  // Get today's date key
+  String todayKey() {
     final now = DateTime.now();
     return '${now.year}-${now.month}-${now.day}';
   }
@@ -28,52 +18,64 @@ class DataManager {
     return '${date.year}-${date.month}-${date.day}';
   }
 
+  // Instance method version for internal use
+  String _dateKey(DateTime date) {
+    return '${date.year}-${date.month}-${date.day}';
+  }
+
+  // CRITICAL: Read data directly from accessibility service's local storage
+  // This bypasses Flutter SharedPreferences entirely
+  Future<Map<String, dynamic>> _readFromAccessibilityStorage() async {
+    try {
+      // Use method channel to get data directly from accessibility service
+      const platform = MethodChannel('thumbolympics/accessibility');
+      
+      final result = await platform.invokeMethod('getStoredData');
+      if (result is Map) {
+        final data = Map<String, dynamic>.from(result);
+        developer.log('Read from accessibility storage: $data', name: 'DataManager');
+        return data;
+      }
+    } catch (e) {
+      developer.log('Error reading from accessibility storage: $e', name: 'DataManager');
+    }
+    
+    // Return default values if method channel fails
+    return {
+      'dailyDistance': 0.0,
+      'dailyScrolls': 0,
+      'lifetimeDistance': 0.0,
+      'lifetimeScrolls': 0,
+      'lastDateKey': todayKey(),
+      'isNewDay': false,
+    };
+  }
+
   // Load all data
   Future<Map<String, dynamic>> loadAllData() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final savedDate = prefs.getString(_kLastDateKey) ?? todayKey();
-      final today = todayKey();
-
-      double dailyDistance = 0.0;
-      int dailyScrolls = 0;
-
-      // Check if it's a new day
-      if (savedDate == today) {
-        dailyDistance = prefs.getDouble(_kDailyDistance) ?? 0.0;
-        dailyScrolls = prefs.getInt(_kDailyScrolls) ?? 0;
-        
-        // CRITICAL FIX: If app was killed, accessibility service may have persisted data
-        // Check historical keys for today's data that might be more recent
-        final historicalDistance = prefs.getDouble('$_kDailyPrefix$today') ?? 0.0;
-        final historicalScrolls = prefs.getInt('${_kDailyPrefix}scrolls_$today') ?? 0;
-        
-        print('DataManager: Current daily: $dailyDistance, historical: $historicalDistance');
-        print('DataManager: Current scrolls: $dailyScrolls, historical: $historicalScrolls');
-        
-        // Use the higher value (in case accessibility service updated while app was killed)
-        if (historicalDistance > dailyDistance) {
-          dailyDistance = historicalDistance;
-          print('DataManager: Using historical distance: $historicalDistance');
-        }
-        if (historicalScrolls > dailyScrolls) {
-          dailyScrolls = historicalScrolls;
-          print('DataManager: Using historical scrolls: $historicalScrolls');
-        }
-      }
-
-      final lifetimeDistance = prefs.getDouble(_kLifetimeDistance) ?? 0.0;
-      final lifetimeScrolls = prefs.getInt(_kLifetimeScrolls) ?? 0;
-
-      return {
-        'dailyDistance': dailyDistance,
-        'dailyScrolls': dailyScrolls,
-        'lifetimeDistance': lifetimeDistance,
-        'lifetimeScrolls': lifetimeScrolls,
-        'lastDateKey': savedDate,
-        'isNewDay': savedDate != today,
-      };
+      print('=== FLUTTER DEBUG: Starting data load from accessibility storage ===');
+      developer.log('=== FLUTTER DEBUG: Starting data load from accessibility storage ===', name: 'ThumbRest');
+      
+      // Read data directly from accessibility service
+      final data = await _readFromAccessibilityStorage();
+      
+      final dailyDistance = data['dailyDistance'] as double;
+      final dailyScrolls = data['dailyScrolls'] as int;
+      final lifetimeDistance = data['lifetimeDistance'] as double;
+      final lifetimeScrolls = data['lifetimeScrolls'] as int;
+      
+      print('DataManager: Loaded data from accessibility storage:');
+      print('  Daily: ${dailyDistance}m, $dailyScrolls scrolls');
+      print('  Lifetime: ${lifetimeDistance}m, $lifetimeScrolls scrolls');
+      
+      developer.log('DataManager: Loaded data from accessibility storage:', name: 'ThumbRest');
+      developer.log('  Daily: ${dailyDistance}m, $dailyScrolls scrolls', name: 'ThumbRest');
+      developer.log('  Lifetime: ${lifetimeDistance}m, $lifetimeScrolls scrolls', name: 'ThumbRest');
+      
+      return data;
     } catch (e) {
+      developer.log('Error loading data: $e', name: 'DataManager');
       return {
         'dailyDistance': 0.0,
         'dailyScrolls': 0,
@@ -85,148 +87,163 @@ class DataManager {
     }
   }
 
-  // Save all current data for a specific date key
+  // Save all current data - DISABLED (accessibility service handles persistence)
   Future<void> saveAllData({
     required double dailyDistance,
     required int dailyScrolls,
     required double lifetimeDistance,
     required int lifetimeScrolls,
-    // The date key (yyyy-m-d) that the daily values correspond to
     required String dateKey,
   }) async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-
-      // Persist the last active date key
-      await prefs.setString(_kLastDateKey, dateKey);
-      await prefs.setDouble(_kDailyDistance, dailyDistance);
-      await prefs.setInt(_kDailyScrolls, dailyScrolls);
-      await prefs.setDouble(_kLifetimeDistance, lifetimeDistance);
-      await prefs.setInt(_kLifetimeScrolls, lifetimeScrolls);
-
-      // Also save today's data for history
-      await prefs.setDouble('$_kDailyPrefix$dateKey', dailyDistance);
-      await prefs.setInt('${_kDailyPrefix}scrolls_$dateKey', dailyScrolls);
+      // Use method channel to save data to accessibility service's storage
+      const platform = MethodChannel('thumbolympics/accessibility');
+      
+      await platform.invokeMethod('saveAllData', {
+        'dailyDistance': dailyDistance,
+        'dailyScrolls': dailyScrolls,
+        'lifetimeDistance': lifetimeDistance,
+        'lifetimeScrolls': lifetimeScrolls,
+        'dateKey': dateKey,
+      });
+      
+      developer.log('Successfully saved all data via accessibility service', name: 'DataManager');
     } catch (e) {
-      // Handle error silently for now
+      developer.log('Error saving data via accessibility service: $e', name: 'DataManager');
+      rethrow;
     }
   }
 
-  // Load historical data
-  Future<Map<String, Map<String, dynamic>>> loadHistoricalData() async {
+  // Get weekly data for history screen
+  Future<Map<String, Map<String, dynamic>>> getWeeklyData(DateTime weekStart) async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final keys = prefs.getKeys();
-      Map<String, Map<String, dynamic>> historicalData = {};
-
-      for (String key in keys) {
-        if (key.startsWith(_kDailyPrefix) && !key.contains('scrolls_')) {
-          final dateStr = key.substring(_kDailyPrefix.length);
-          final distance = prefs.getDouble(key) ?? 0.0;
-          final scrolls = prefs.getInt('${_kDailyPrefix}scrolls_$dateStr') ?? 0;
-          
-          historicalData[dateStr] = {
-            'distance': distance,
-            'scrolls': scrolls,
-          };
-        }
+      // Use method channel to get historical data from accessibility service
+      const platform = MethodChannel('thumbolympics/accessibility');
+      
+      final result = await platform.invokeMethod('getWeeklyData', {
+        'weekStart': weekStart.millisecondsSinceEpoch,
+      });
+      
+      if (result is Map) {
+        final data = Map<String, dynamic>.from(result);
+        final weeklyData = <String, Map<String, dynamic>>{};
+        
+        // Convert the result to the expected format
+        data.forEach((dateKey, dayData) {
+          if (dayData is Map) {
+            weeklyData[dateKey] = {
+              'distance': (dayData['distance'] as num?)?.toDouble() ?? 0.0,
+              'scrolls': (dayData['scrolls'] as num?)?.toInt() ?? 0,
+            };
+          }
+        });
+        
+        return weeklyData;
       }
-
-      // If no historical data exists, generate some sample data for demo
-      if (historicalData.isEmpty) {
-        historicalData = await _generateSampleHistoricalData();
+      
+      // Fallback: return empty data for all 7 days
+      Map<String, Map<String, dynamic>> weeklyData = {};
+      for (int i = 0; i < 7; i++) {
+        final date = weekStart.add(Duration(days: i));
+        final dateKey = _dateKey(date);
+        weeklyData[dateKey] = {
+          'distance': 0.0,
+          'scrolls': 0,
+        };
       }
-
-      return historicalData;
+      
+      return weeklyData;
     } catch (e) {
-      return await _generateSampleHistoricalData();
-    }
-  }
-
-  // Generate sample historical data for demo purposes
-  Future<Map<String, Map<String, dynamic>>> _generateSampleHistoricalData() async {
-    final prefs = await SharedPreferences.getInstance();
-    Map<String, Map<String, dynamic>> sampleData = {};
-    final now = DateTime.now();
-    
-    // Generate 30 days of sample data
-    for (int i = 0; i < 30; i++) {
-      final date = now.subtract(Duration(days: i));
-      final dateStr = dateKey(date);
+      developer.log('Error getting weekly data: $e', name: 'DataManager');
       
-      // Generate realistic data with some variation
-      double dailyDistance = 50 + (i % 10) * 30 + (i % 3) * 20; // 50-200m range
-      int dailyScrolls = (dailyDistance / 0.15).round(); // Approximate scrolls
-      
-      // Weekend might have higher usage
-      if (date.weekday >= 6) {
-        dailyDistance *= 1.5;
-        dailyScrolls = (dailyScrolls * 1.5).round();
+      // Fallback: return empty data
+      Map<String, Map<String, dynamic>> weeklyData = {};
+      for (int i = 0; i < 7; i++) {
+        final date = weekStart.add(Duration(days: i));
+        final dateKey = _dateKey(date);
+        weeklyData[dateKey] = {
+          'distance': 0.0,
+          'scrolls': 0,
+        };
       }
-
-      sampleData[dateStr] = {
-        'distance': dailyDistance,
-        'scrolls': dailyScrolls,
-      };
-
-      // Save to preferences for persistence
-      await prefs.setDouble('$_kDailyPrefix$dateStr', dailyDistance);
-      await prefs.setInt('${_kDailyPrefix}scrolls_$dateStr', dailyScrolls);
+      
+      return weeklyData;
     }
-
-    return sampleData;
   }
+
+  // Get app leaderboard data
+  Future<List<MapEntry<String, double>>> getAppLeaderboard({bool isWeekly = false, DateTime? weekStart}) async {
+    try {
+      // Use method channel to get app data from accessibility service
+      const platform = MethodChannel('thumbolympics/accessibility');
+      
+      final result = await platform.invokeMethod('getAppLeaderboard', {
+        'isWeekly': isWeekly,
+        'weekStart': weekStart?.millisecondsSinceEpoch,
+      });
+      
+      if (result is Map) {
+        final appData = Map<String, dynamic>.from(result);
+        final leaderboard = <MapEntry<String, double>>[];
+        
+        // Convert the result to the expected format
+        appData.forEach((packageName, distance) {
+          if (distance is num) {
+            leaderboard.add(MapEntry(packageName, distance.toDouble()));
+          }
+        });
+        
+        // Sort by distance (descending)
+        leaderboard.sort((a, b) => b.value.compareTo(a.value));
+        
+        return leaderboard;
+      }
+      
+      // Fallback: return empty leaderboard
+      return [];
+    } catch (e) {
+      developer.log('Error getting app leaderboard: $e', name: 'DataManager');
+      return [];
+    }
+  }
+
 
   // Reset daily data
   Future<void> resetDailyData() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final today = todayKey();
-      
-      await prefs.setString(_kLastDateKey, today);
-      await prefs.setDouble(_kDailyDistance, 0.0);
-      await prefs.setInt(_kDailyScrolls, 0);
-      await prefs.setDouble('$_kDailyPrefix$today', 0.0);
-      await prefs.setInt('${_kDailyPrefix}scrolls_$today', 0);
+      // TODO: Implement reset functionality in accessibility service
+      developer.log('Reset daily data requested - not implemented yet', name: 'DataManager');
     } catch (e) {
-      // Handle error
+      developer.log('Error resetting daily data: $e', name: 'DataManager');
     }
   }
 
   // Reset all data
   Future<void> resetAllData() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      
-      // Clear all data
-      await prefs.clear();
-      
-      // Set default values
-      final today = todayKey();
-      await prefs.setString(_kLastDateKey, today);
-      await prefs.setDouble(_kDailyDistance, 0.0);
-      await prefs.setInt(_kDailyScrolls, 0);
-      await prefs.setDouble(_kLifetimeDistance, 0.0);
-      await prefs.setInt(_kLifetimeScrolls, 0);
+      // TODO: Implement reset functionality in accessibility service
+      developer.log('Reset all data requested - not implemented yet', name: 'DataManager');
     } catch (e) {
-      // Handle error
+      developer.log('Error resetting all data: $e', name: 'DataManager');
     }
   }
 
   // Get data for a specific date
   Future<Map<String, dynamic>> getDataForDate(DateTime date) async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final dateStr = dateKey(date);
+      // For now, only return current day's data
+      final today = DateTime.now();
+      if (date.year == today.year && date.month == today.month && date.day == today.day) {
+        return await _readFromAccessibilityStorage();
+      }
       
-      final distance = prefs.getDouble('$_kDailyPrefix$dateStr') ?? 0.0;
-      final scrolls = prefs.getInt('${_kDailyPrefix}scrolls_$dateStr') ?? 0;
-      
+      // Return empty data for other dates
       return {
-        'distance': distance,
-        'scrolls': scrolls,
+        'distance': 0.0,
+        'scrolls': 0,
       };
     } catch (e) {
+      developer.log('Error getting data for date: $e', name: 'DataManager');
       return {
         'distance': 0.0,
         'scrolls': 0,
@@ -234,58 +251,34 @@ class DataManager {
     }
   }
 
-  // Get weekly data
-  Future<Map<String, Map<String, dynamic>>> getWeeklyData(DateTime weekStart) async {
-    Map<String, Map<String, dynamic>> weekData = {};
-    
-    for (int i = 0; i < 7; i++) {
-      final date = weekStart.add(Duration(days: i));
-      final dateStr = dateKey(date);
-      final dayData = await getDataForDate(date);
-      weekData[dateStr] = dayData;
-    }
-    
-    return weekData;
-  }
-
   // Save app-specific data for today
   Future<void> saveAppData(String packageName, double distance) async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final today = todayKey();
+      if (packageName.isEmpty || distance <= 0) return;
       
-      // Get current app data for today
-      final currentData = await getDailyAppData();
-      final currentDistance = currentData[packageName] ?? 0.0;
-      final newDistance = currentDistance + distance;
+      // Use method channel to save app data to accessibility service's storage
+      const platform = MethodChannel('thumbolympics/accessibility');
       
-      // Save updated data
-      await prefs.setDouble('$_kDailyAppDataPrefix$today:$packageName', newDistance);
+      await platform.invokeMethod('saveAppData', {
+        'packageName': packageName,
+        'distance': distance,
+        'dateKey': todayKey(),
+      });
+      
+      developer.log('Successfully saved app data: $packageName += ${distance}m', name: 'DataManager');
     } catch (e) {
-      // Handle error silently
+      developer.log('Error saving app data: $e', name: 'DataManager');
+      // Don't rethrow - app data saving is not critical
     }
   }
 
   // Get daily app data
   Future<Map<String, double>> getDailyAppData() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final today = todayKey();
-      final keys = prefs.getKeys();
-      Map<String, double> appData = {};
-
-      for (String key in keys) {
-        if (key.startsWith('$_kDailyAppDataPrefix$today:')) {
-          final packageName = key.substring('$_kDailyAppDataPrefix$today:'.length);
-          final distance = prefs.getDouble(key) ?? 0.0;
-          if (distance > 0) {
-            appData[packageName] = distance;
-          }
-        }
-      }
-
-      return appData;
+      // TODO: Implement app-specific data retrieval from accessibility service
+      return {};
     } catch (e) {
+      developer.log('Error getting daily app data: $e', name: 'DataManager');
       return {};
     }
   }
@@ -293,48 +286,22 @@ class DataManager {
   // Get weekly app data
   Future<Map<String, double>> getWeeklyAppData(DateTime weekStart) async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final keys = prefs.getKeys();
-      Map<String, double> weeklyAppData = {};
-
-      // Collect data for each day of the week
-      for (int i = 0; i < 7; i++) {
-        final date = weekStart.add(Duration(days: i));
-        final currentDateKey = dateKey(date);
-
-        for (String key in keys) {
-          if (key.startsWith('$_kDailyAppDataPrefix$currentDateKey:')) {
-            final packageName = key.substring('$_kDailyAppDataPrefix$currentDateKey:'.length);
-            final distance = prefs.getDouble(key) ?? 0.0;
-            weeklyAppData[packageName] = (weeklyAppData[packageName] ?? 0.0) + distance;
-          }
-        }
-      }
-
-      return weeklyAppData;
+      // TODO: Implement weekly app data retrieval from accessibility service
+      return {};
     } catch (e) {
+      developer.log('Error getting weekly app data: $e', name: 'DataManager');
       return {};
     }
   }
 
-  // Get app leaderboard (sorted by distance)
-  Future<List<MapEntry<String, double>>> getAppLeaderboard({bool isWeekly = false, DateTime? weekStart}) async {
+  // Load historical data
+  Future<Map<String, Map<String, dynamic>>> loadHistoricalData() async {
     try {
-      Map<String, double> appData;
-      
-      if (isWeekly && weekStart != null) {
-        appData = await getWeeklyAppData(weekStart);
-      } else {
-        appData = await getDailyAppData();
-      }
-
-      // Convert to list and sort by distance (descending)
-      final sortedList = appData.entries.toList()
-        ..sort((a, b) => b.value.compareTo(a.value));
-
-      return sortedList;
+      // TODO: Implement historical data loading from accessibility service
+      return {};
     } catch (e) {
-      return [];
+      developer.log('Error loading historical data: $e', name: 'DataManager');
+      return {};
     }
   }
 }

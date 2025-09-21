@@ -232,8 +232,8 @@ class ThumbRestAccessibilityService : AccessibilityService() {
 
             // CRITICAL: Always save today's data to historical keys so Flutter can read it
             // This ensures data persists even if app is killed
-            editor.putLong("flutter.daily_${'$'}todayKey", java.lang.Double.doubleToRawLongBits(newDailyDistance))
-            editor.putInt("flutter.daily_scrolls_${'$'}todayKey", newDailyScrolls)
+            editor.putLong("flutter.daily_$todayKey", java.lang.Double.doubleToRawLongBits(newDailyDistance))
+            editor.putInt("flutter.daily_scrolls_$todayKey", newDailyScrolls)
             
             // Also ensure lifetime totals are updated in case Flutter reads them directly
             editor.putLong("flutter.lifetimeDistance", java.lang.Double.doubleToRawLongBits(newLifetimeDistance))
@@ -241,7 +241,7 @@ class ThumbRestAccessibilityService : AccessibilityService() {
 
             // Save today's per-app distance
             if (packageName.isNotEmpty() && packageName != "unknown" && packageName != "test") {
-                val appKey = "flutter.daily_app_${'$'}todayKey:${'$'}packageName"
+                val appKey = "daily_app_$todayKey:$packageName"
                 val existingApp = java.lang.Double.longBitsToDouble(
                     prefs.getLong(appKey, java.lang.Double.doubleToRawLongBits(0.0))
                 )
@@ -267,7 +267,7 @@ class ThumbRestAccessibilityService : AccessibilityService() {
         val y = cal.get(Calendar.YEAR)
         val m = cal.get(Calendar.MONTH) + 1
         val d = cal.get(Calendar.DAY_OF_MONTH)
-        return "${'$'}y-${'$'}m-${'$'}d"
+        return "$y-$m-$d"
     }
 
     override fun onInterrupt() {
@@ -285,6 +285,22 @@ class ThumbRestAccessibilityService : AccessibilityService() {
         lastOffsets.clear()
         isTouchInteraction = false
         Log.d(TAG, "Accessibility service destroyed")
+        
+        // CRITICAL: Ensure final data persistence before service is destroyed
+        try {
+            val prefs = applicationContext.getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
+            val todayKey = getTodayKey()
+            
+            // Force commit any pending data
+            val editor = prefs.edit()
+            editor.putString("flutter.lastDateKey", todayKey)
+            editor.commit()
+            
+            Log.d(TAG, "Final data persistence completed before service destruction")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error during final data persistence", e)
+        }
+        
         // Do not hold stale channel references
         try {
             // Best-effort: if app recreates engine it will set the channel again

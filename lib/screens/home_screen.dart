@@ -21,7 +21,7 @@ class _HomeScreenState extends State<HomeScreen>
   int dailyScrolls = 0;
   double lifetimeDistance = 0.0;
   int lifetimeScrolls = 0;
-  String lastDateKey = DataManager.todayKey();
+  String lastDateKey = DataManager().todayKey();
   bool isAccessibilityEnabled = false;
   List<MapEntry<String, double>> appLeaderboard = [];
 
@@ -72,9 +72,9 @@ class _HomeScreenState extends State<HomeScreen>
     // Check accessibility status
     _checkAccessibilityAndStart();
 
-    // Set up periodic data sync
+    // Set up periodic data reload (don't sync to avoid overwriting accessibility service data)
     Timer.periodic(const Duration(seconds: 30), (timer) {
-      _syncData();
+      _loadAllData();
     });
 
     // Lightweight health check: periodically verify the service is still enabled
@@ -100,6 +100,8 @@ class _HomeScreenState extends State<HomeScreen>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
+      // CRITICAL: Just reload data when app resumes to get latest values
+      _loadAllData();
       _checkAccessibilityAndStart();
       _ensureDailyBoundary();
     } else if (state == AppLifecycleState.paused) {
@@ -169,13 +171,9 @@ class _HomeScreenState extends State<HomeScreen>
     });
   }
 
-  Future<void> _syncData() async {
-    await _ensureDailyBoundary();
-    await _saveAllData();
-  }
 
   Future<void> _ensureDailyBoundary() async {
-    final today = DataManager.todayKey();
+    final today = DataManager().todayKey();
     if (lastDateKey != today) {
       // Persist previous day's final totals under its own date key
       final previousDateKey = lastDateKey;

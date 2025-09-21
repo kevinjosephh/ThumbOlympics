@@ -4,6 +4,11 @@ import android.content.Intent
 import android.provider.Settings
 import android.os.Bundle
 import android.util.Log
+import android.content.Context
+import android.content.pm.PackageManager
+import android.os.PowerManager
+import android.net.Uri
+import android.os.Build
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -239,6 +244,63 @@ class MainActivity: FlutterActivity() {
                     } catch (e: Exception) {
                         Log.e(TAG, "Error retrieving app leaderboard", e)
                         result.error("ERROR", "Could not retrieve app leaderboard", null)
+                    }
+                }
+                "requestBatteryOptimizationExemption" -> {
+                    try {
+                        val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
+                        val packageName = packageName
+                        
+                        if (!powerManager.isIgnoringBatteryOptimizations(packageName)) {
+                            val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                                data = Uri.parse("package:$packageName")
+                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            }
+                            startActivity(intent)
+                            result.success("Battery optimization exemption requested")
+                        } else {
+                            result.success("Already exempt from battery optimization")
+                        }
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error requesting battery optimization exemption", e)
+                        result.error("ERROR", "Could not request battery optimization exemption", null)
+                    }
+                }
+
+                "checkBatteryOptimizationStatus" -> {
+                    try {
+                        val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
+                        val isIgnoring = powerManager.isIgnoringBatteryOptimizations(packageName)
+                        result.success(isIgnoring)
+                    } catch (e: Exception) {
+                        result.error("ERROR", "Could not check battery optimization status", null)
+                    }
+                }
+                "startForegroundService" -> {
+                    try {
+                        val serviceIntent = Intent(this, ForegroundService::class.java)
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                            startForegroundService(serviceIntent)
+                        } else {
+                            startService(serviceIntent)
+                        }
+                        Log.d(TAG, "Foreground service started")
+                        result.success("Foreground service started")
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error starting foreground service", e)
+                        result.error("ERROR", "Could not start foreground service", null)
+                    }
+                }
+
+                "stopForegroundService" -> {
+                    try {
+                        val serviceIntent = Intent(this, ForegroundService::class.java)
+                        stopService(serviceIntent)
+                        Log.d(TAG, "Foreground service stopped")
+                        result.success("Foreground service stopped")
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error stopping foreground service", e)
+                        result.error("ERROR", "Could not stop foreground service", null)
                     }
                 }
                 "testAccessibilityService" -> {

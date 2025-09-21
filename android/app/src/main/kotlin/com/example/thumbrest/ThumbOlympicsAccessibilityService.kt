@@ -5,6 +5,7 @@ import android.accessibilityservice.AccessibilityServiceInfo
 import android.view.accessibility.AccessibilityEvent
 import android.util.Log
 import android.content.Context
+import android.content.Intent
 import io.flutter.plugin.common.MethodChannel
 import kotlin.math.abs
 import kotlin.math.hypot
@@ -13,7 +14,7 @@ import java.util.Calendar
 class ThumbRestAccessibilityService : AccessibilityService() {
 
     companion object {
-        private var channel: MethodChannel? = null
+        private var methodChannel: MethodChannel? = null
         private const val TAG = "ThumbRestAccessibilityService"
         // Track last known scroll offsets per window to compute deltas
         private val lastOffsets: MutableMap<Int, Pair<Int, Int>> = mutableMapOf()
@@ -21,8 +22,9 @@ class ThumbRestAccessibilityService : AccessibilityService() {
         private var isTouchInteraction = false
         private var lastTouchTime = 0L
         
-        fun setMethodChannel(ch: MethodChannel) {
-            channel = ch
+        fun setMethodChannel(channel: MethodChannel) {
+            methodChannel = channel
+            Log.d(TAG, "Method channel set/updated")
         }
     }
 
@@ -51,6 +53,11 @@ class ThumbRestAccessibilityService : AccessibilityService() {
         serviceInfo = info
         
         Log.d(TAG, "Accessibility service connected with enhanced scroll detection")
+        
+        // Try to reconnect to the method channel if it's null
+        if (methodChannel == null) {
+            Log.w(TAG, "Method channel is null after service restart - may need to reopen app")
+        }
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
@@ -155,31 +162,40 @@ class ThumbRestAccessibilityService : AccessibilityService() {
         val clampedDistance = if (distanceMeters.isFinite()) distanceMeters.coerceAtMost(5.0f) else 0f
 
         if (clampedDistance > 0f) {
-            val scrollData = mapOf(
-                "distanceMeters" to clampedDistance.toDouble(),
-                "timestamp" to System.currentTimeMillis(),
-                "packageName" to packageName,
-                "isTouchInteraction" to isTouchInteraction
-            )
-            Log.d(TAG, "Sending scroll data: ${clampedDistance}m from $packageName")
+            sendScrollData(clampedDistance.toDouble(), packageName, isTouchInteraction)
+        }
+    }
 
-            val ch = channel
-            if (ch != null) {
-                try {
-                    ch.invokeMethod("onScroll", scrollData)
-                    Log.d(TAG, "Successfully sent scroll data via channel")
-                } catch (e: Exception) {
-                    Log.w(TAG, "Channel present but failed to send; persisting locally", e)
-                    persistScrollLocally(clampedDistance.toDouble(), packageName)
-                }
-            } else {
-                Log.d(TAG, "Channel is null; persisting locally")
-                persistScrollLocally(clampedDistance.toDouble(), packageName)
+    // Check if the service is still properly connected
+    private fun isServiceHealthy(): Boolean {
+        return methodChannel != null && serviceInfo != null
+    }
+
+    private fun sendScrollData(distanceMeters: Double, packageName: String, isTouchInteraction: Boolean = false) {
+        Log.d(TAG, "Sending scroll data: ${distanceMeters}m from $packageName")
+        
+        val scrollData = mapOf(
+            "distanceMeters" to distanceMeters,
+            "timestamp" to System.currentTimeMillis(),
+            "packageName" to packageName,
+            "isTouchInteraction" to isTouchInteraction
+        )
+        
+        // Always persist locally first to ensure data is never lost
+        persistScrollLocally(distanceMeters, packageName)
+        
+        // Try to send via method channel if available
+        val channel = methodChannel
+        if (channel != null && isServiceHealthy()) {
+            try {
+                channel.invokeMethod("onScroll", scrollData)
+                Log.d(TAG, "Successfully sent scroll data via channel")
+            } catch (e: Exception) {
+                Log.w(TAG, "Channel present but failed to send data", e)
+                // Data is already persisted locally, so this failure is not critical
             }
-            
-            // CRITICAL FIX: Always persist locally as backup, even if channel send appears successful
-            // This ensures data is never lost due to FlutterJNI detachment or other silent failures
-            persistScrollLocally(clampedDistance.toDouble(), packageName)
+        } else {
+            Log.d(TAG, "Channel is null or service unhealthy - data persisted locally only")
         }
     }
 
@@ -239,9 +255,9 @@ class ThumbRestAccessibilityService : AccessibilityService() {
             editor.putLong("flutter.lifetimeDistance", java.lang.Double.doubleToRawLongBits(newLifetimeDistance))
             editor.putInt("flutter.lifetimeScrolls", newLifetimeScrolls)
 
-            // Save today's per-app distance
+            // Save today's per-app distance with the correct key format for MainActivity.kt
             if (packageName.isNotEmpty() && packageName != "unknown" && packageName != "test") {
-                val appKey = "daily_app_$todayKey:$packageName"
+                val appKey = "flutter.daily_app_${todayKey}_$packageName"
                 val existingApp = java.lang.Double.longBitsToDouble(
                     prefs.getLong(appKey, java.lang.Double.doubleToRawLongBits(0.0))
                 )
@@ -271,7 +287,8 @@ class ThumbRestAccessibilityService : AccessibilityService() {
     }
 
     override fun onInterrupt() {
-        Log.d(TAG, "Accessibility service interrupted")
+        Log.w(TAG, "Accessibility service interrupted")
+        // Don't clear the method channel on interrupt, as it might reconnect
     }
 
     override fun onUnbind(intent: android.content.Intent?): Boolean {
@@ -282,9 +299,11 @@ class ThumbRestAccessibilityService : AccessibilityService() {
     }
 
     override fun onDestroy() {
+        Log.d(TAG, "Accessibility service destroyed - attempting to restart")
+        
+        // Clear internal state
         lastOffsets.clear()
         isTouchInteraction = false
-        Log.d(TAG, "Accessibility service destroyed")
         
         // CRITICAL: Ensure final data persistence before service is destroyed
         try {
@@ -301,12 +320,20 @@ class ThumbRestAccessibilityService : AccessibilityService() {
             Log.e(TAG, "Error during final data persistence", e)
         }
         
-        // Do not hold stale channel references
+        // Clear the static method channel reference
+        methodChannel = null
+        
+        // Attempt to restart the service by sending a broadcast
         try {
-            // Best-effort: if app recreates engine it will set the channel again
-        } finally {
-            super.onDestroy()
+            val intent = Intent("com.example.thumbrest.RESTART_SERVICE")
+            intent.setPackage(packageName)
+            sendBroadcast(intent)
+            Log.d(TAG, "Restart broadcast sent")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to send restart broadcast", e)
         }
+        
+        super.onDestroy()
     }
     
     // Helper functions to safely read SharedPreferences with type conversion

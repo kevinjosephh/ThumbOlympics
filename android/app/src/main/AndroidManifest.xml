@@ -8,6 +8,7 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_ACCESSIBILITY" />
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
     <application
         android:label="ThumbOlympics"
@@ -35,7 +36,21 @@
             android:name="com.pravera.flutter_foreground_task.service.ForegroundService"
             android:foregroundServiceType="dataSync|mediaPlayback|location"
             android:exported="false" />
+        <service
+            android:name=".ForegroundService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
 
+        <!-- If you don't already have this, add the broadcast receiver -->
+        <receiver
+            android:name=".RestartServiceReceiver"
+            android:enabled="true"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.example.thumbrest.RESTART_SERVICE" />
+            </intent-filter>
+        </receiver>
         <!-- Your extra activity -->
         <activity android:name="com.example.thumbrest.AccessibilityPermissionActivity" />
 

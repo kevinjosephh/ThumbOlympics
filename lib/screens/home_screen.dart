@@ -325,6 +325,27 @@ class _HomeScreenState extends State<HomeScreen>
     final enabled = await _isAccessibilityEnabled();
     if (mounted) {
       setState(() => isAccessibilityEnabled = enabled);
+      
+      if (enabled) {
+        // Start foreground service to keep the app process alive
+        try {
+          await _platform.invokeMethod('startForegroundService');
+          print('Foreground service started successfully');
+        } catch (e) {
+          print('Failed to start foreground service: $e');
+        }
+        
+        // Check and request battery optimization exemption
+        try {
+          final isExempt = await _platform.invokeMethod('checkBatteryOptimizationStatus');
+          if (!isExempt) {
+            // Show a dialog or automatically request exemption
+            await _platform.invokeMethod('requestBatteryOptimizationExemption');
+          }
+        } catch (e) {
+          print('Failed to check/request battery optimization: $e');
+        }
+      }
     }
   }
 

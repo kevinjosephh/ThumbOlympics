@@ -1,4 +1,4 @@
-package com.example.thumbrest
+package com.thumbolympics.app
 
 import android.content.ComponentName
 import android.content.Context
@@ -25,3 +25,14 @@ object AccessibilityServiceUtils {
         return false
     }
 }
+
+// Add this to your accessibility service
+private fun logServiceHealth() {
+    Log.d(TAG, "Service Health Check:")
+    Log.d(TAG, "  - Method channel: ${methodChannel != null}")
+    Log.d(TAG, "  - Service info: ${serviceInfo != null}")
+    Log.d(TAG, "  - Last offsets size: ${lastOffsets.size}")
+    Log.d(TAG, "  - Memory: ${Runtime.getRuntime().let { "${it.totalMemory() - it.freeMemory()}/${it.totalMemory()}" }}")
+}
+
+// Call this periodically or when errors occur

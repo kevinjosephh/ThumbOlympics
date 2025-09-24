@@ -1,4 +1,4 @@
-package com.example.thumbrest
+package com.thumbolympics.app
 
 import android.content.BroadcastReceiver
 import android.content.Context
@@ -11,7 +11,7 @@ class RestartServiceReceiver : BroadcastReceiver() {
     }
 
     override fun onReceive(context: Context?, intent: Intent?) {
-        if (intent?.action == "com.example.thumbrest.RESTART_SERVICE") {
+        if (intent?.action == "com.thumbolympics.app.RESTART_SERVICE") {
             Log.d(TAG, "Received restart service broadcast")
             
             // Note: We can't directly restart the accessibility service from here

@@ -29,9 +29,9 @@
 -keep class io.flutter.plugins.**  { *; }
 
 # Accessibility service rules
--keep class com.example.thumbrest.ThumbRestAccessibilityService { *; }
--keep class com.example.thumbrest.MainActivity { *; }
--keep class com.example.thumbrest.AccessibilityServiceUtils { *; }
+-keep class com.thumbolympics.app.ThumbRestAccessibilityService { *; }
+-keep class com.thumbolympics.app.MainActivity { *; }
+-keep class com.thumbolympics.app.AccessibilityServiceUtils { *; }
 
 # Keep method channel names
 -keepclassmembers class * {

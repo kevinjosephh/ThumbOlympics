@@ -1,5 +1,5 @@
 // Create a new file: ForegroundService.kt
-package com.example.thumbrest
+package com.thumbolympics.app
 
 import android.app.Notification
 import android.app.NotificationChannel

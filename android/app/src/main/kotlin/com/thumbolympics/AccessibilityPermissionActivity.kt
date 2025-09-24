@@ -1,4 +1,4 @@
-package com.example.thumbrest
+package com.thumbolympics.app
 
 import android.app.Activity
 import android.content.Intent

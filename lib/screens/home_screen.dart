@@ -79,10 +79,23 @@ class _HomeScreenState extends State<HomeScreen>
 
     // Lightweight health check: periodically verify the service is still enabled
     // and refresh state if it was toggled or crashed.
-    Timer.periodic(const Duration(minutes: 2), (timer) async {
+    Timer.periodic(const Duration(minutes: 1), (timer) async {
       final enabled = await _isAccessibilityEnabled();
       if (mounted && enabled != isAccessibilityEnabled) {
         setState(() => isAccessibilityEnabled = enabled);
+        
+        if (!enabled) {
+          // Service stopped - show user notification
+          _showServiceStoppedDialog();
+        } else {
+          // Service restarted - restart foreground service too
+          try {
+            await _platform.invokeMethod('startForegroundService');
+            print('Foreground service restarted after accessibility service recovery');
+          } catch (e) {
+            print('Failed to restart foreground service: $e');
+          }
+        }
       }
       if (!mounted) timer.cancel();
     });
@@ -97,6 +110,43 @@ class _HomeScreenState extends State<HomeScreen>
     super.dispose();
   }
 
+  void _showServiceStoppedDialog() {
+    if (!mounted) return;
+    
+    // Don't show multiple dialogs
+    if (ModalRoute.of(context)?.isCurrent != true) return;
+    
+    showDialog(
+      context: context,
+      barrierDismissible: false, // Force user to make a choice
+      builder: (context) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.warning, color: Colors.orange),
+            SizedBox(width: 8),
+            Text('Service Stopped'),
+          ],
+        ),
+        content: const Text(
+          'The accessibility service has stopped working. This can happen due to memory management or system restarts.\n\nWould you like to re-enable it?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Later'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(context);
+              _openAccessibilitySettings();
+            },
+            child: const Text('Enable'),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
@@ -106,6 +156,32 @@ class _HomeScreenState extends State<HomeScreen>
       _ensureDailyBoundary();
     } else if (state == AppLifecycleState.paused) {
       _saveAllData();
+    }
+  }
+
+  // Add this method for manual service health check (useful for debugging)
+  Future<void> _testServiceConnection() async {
+    try {
+      await _platform.invokeMethod('testAccessibilityService');
+      _showErrorSnackBar('Service connection test sent');
+    } catch (e) {
+      _showErrorSnackBar('Service connection failed: $e');
+    }
+  }
+
+  // You can call this method from a debug button or during development
+  Future<void> _debugServiceStatus() async {
+    final enabled = await _isAccessibilityEnabled();
+    try {
+      final batteryOptimized = await _platform.invokeMethod('checkBatteryOptimizationStatus');
+      print('=== SERVICE DEBUG INFO ===');
+      print('Accessibility enabled: $enabled');
+      print('UI state enabled: $isAccessibilityEnabled');
+      print('Battery optimized: $batteryOptimized');
+      print('Daily distance: $dailyDistance');
+      print('========================');
+    } catch (e) {
+      print('Error getting debug info: $e');
     }
   }
 

@@ -1,4 +1,4 @@
-package com.example.thumbrest
+package com.thumbolympics.app
 
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.AccessibilityServiceInfo
@@ -58,6 +58,13 @@ class ThumbRestAccessibilityService : AccessibilityService() {
         if (methodChannel == null) {
             Log.w(TAG, "Method channel is null after service restart - may need to reopen app")
         }
+        try {
+            val info = serviceInfo
+            info.flags = info.flags or AccessibilityServiceInfo.FLAG_REQUEST_ENHANCED_WEB_ACCESSIBILITY
+            serviceInfo = info
+        } catch (e: Exception) {
+            Log.e(TAG, "Error setting service flags", e)
+        }
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
@@ -103,66 +110,78 @@ class ThumbRestAccessibilityService : AccessibilityService() {
     }
     
     private fun handleScrollEvent(event: AccessibilityEvent) {
-        val currentY = event.scrollY
-        val currentX = event.scrollX
-        val windowId = event.windowId
-        val packageName = event.packageName?.toString() ?: "unknown"
-        
-        Log.d(TAG, "Scroll event from $packageName: x=$currentX, y=$currentY, windowId=$windowId")
+        try {
+            val currentY = event.scrollY
+            val currentX = event.scrollX
+            val windowId = event.windowId
+            val packageName = event.packageName?.toString() ?: "unknown"
+            
+            Log.d(TAG, "Scroll event from $packageName: x=$currentX, y=$currentY, windowId=$windowId")
 
-        // Ignore invalid values sometimes reported by certain views
-        if ((currentY < 0 && currentX < 0) || windowId < 0) {
-            Log.d(TAG, "Ignoring invalid scroll values")
-            return
-        }
+            // Ignore invalid values sometimes reported by certain views
+            if ((currentY < 0 && currentX < 0) || windowId < 0) {
+                Log.d(TAG, "Ignoring invalid scroll values")
+                return
+            }
 
-        val prev = lastOffsets[windowId]
-        var deltaYpx = if (prev != null) abs(currentY - prev.first) else 0
-        var deltaXpx = if (prev != null) abs(currentX - prev.second) else 0
+            val prev = lastOffsets[windowId]
+            var deltaYpx = if (prev != null) abs(currentY - prev.first) else 0
+            var deltaXpx = if (prev != null) abs(currentX - prev.second) else 0
 
-        // Update last offsets for this window
-        lastOffsets[windowId] = Pair(currentY, currentX)
+            // Update last offsets for this window
+            lastOffsets[windowId] = Pair(currentY, currentX)
 
-        // Some apps (e.g., YouTube) report zero scrollX/Y but provide scroll deltas (API 28+)
-        if (deltaYpx == 0 && deltaXpx == 0) {
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
-                val dy = kotlin.math.abs(event.scrollDeltaY)
-                val dx = kotlin.math.abs(event.scrollDeltaX)
-                if (dy > 0 || dx > 0) {
-                    deltaYpx = dy
-                    deltaXpx = dx
+            // Some apps (e.g., YouTube) report zero scrollX/Y but provide scroll deltas (API 28+)
+            if (deltaYpx == 0 && deltaXpx == 0) {
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+                    val dy = kotlin.math.abs(event.scrollDeltaY)
+                    val dx = kotlin.math.abs(event.scrollDeltaX)
+                    if (dy > 0 || dx > 0) {
+                        deltaYpx = dy
+                        deltaXpx = dx
+                    }
                 }
             }
-        }
 
-        // Fallback: infer distance from list index changes when pixel deltas are unavailable
-        if (deltaYpx == 0 && deltaXpx == 0) {
-            val fromIdx = event.fromIndex
-            val toIdx = event.toIndex
-            if (fromIdx >= 0 && toIdx >= 0 && fromIdx != toIdx) {
-                val dmTmp = resources.displayMetrics
-                val approxItemPx = (100f * dmTmp.density).toInt() // ~100dp per row
-                val steps = kotlin.math.abs(toIdx - fromIdx)
-                deltaYpx = approxItemPx * steps
+            // Fallback: infer distance from list index changes when pixel deltas are unavailable
+            if (deltaYpx == 0 && deltaXpx == 0) {
+                val fromIdx = event.fromIndex
+                val toIdx = event.toIndex
+                if (fromIdx >= 0 && toIdx >= 0 && fromIdx != toIdx) {
+                    val dmTmp = resources.displayMetrics
+                    val approxItemPx = (100f * dmTmp.density).toInt() // ~100dp per row
+                    val steps = kotlin.math.abs(toIdx - fromIdx)
+                    deltaYpx = approxItemPx * steps
+                }
             }
-        }
 
-        // Convert pixel deltas to meters using device physical DPI
-        val dm = resources.displayMetrics
-        val yDpi = if (dm.ydpi > 0f) dm.ydpi else dm.densityDpi.toFloat()
-        val xDpi = if (dm.xdpi > 0f) dm.xdpi else dm.densityDpi.toFloat()
+            // Convert pixel deltas to meters using device physical DPI
+            val dm = resources.displayMetrics
+            val yDpi = if (dm.ydpi > 0f) dm.ydpi else dm.densityDpi.toFloat()
+            val xDpi = if (dm.xdpi > 0f) dm.xdpi else dm.densityDpi.toFloat()
 
-        val metersY = (deltaYpx / yDpi) * 0.0254f
-        val metersX = (deltaXpx / xDpi) * 0.0254f
+            val metersY = (deltaYpx / yDpi) * 0.0254f
+            val metersX = (deltaXpx / xDpi) * 0.0254f
 
-        // Total distance moved along the scroll plane
-        val distanceMeters = hypot(metersX, metersY)
+            // Total distance moved along the scroll plane
+            val distanceMeters = hypot(metersX, metersY)
 
-        // Guard against improbable spikes to reduce risk of ANRs/exceptions downstream
-        val clampedDistance = if (distanceMeters.isFinite()) distanceMeters.coerceAtMost(5.0f) else 0f
+            // Guard against improbable spikes to reduce risk of ANRs/exceptions downstream
+            val clampedDistance = if (distanceMeters.isFinite()) distanceMeters.coerceAtMost(5.0f) else 0f
 
-        if (clampedDistance > 0f) {
-            sendScrollData(clampedDistance.toDouble(), packageName, isTouchInteraction)
+            if (clampedDistance > 0f) {
+                sendScrollData(clampedDistance.toDouble(), packageName, isTouchInteraction)
+            }
+        } catch (e: SecurityException) {
+            Log.e(TAG, "Security exception in scroll handling", e)
+            // Don't crash, just log and continue
+        } catch (e: OutOfMemoryError) {
+            Log.e(TAG, "Out of memory in scroll handling", e)
+            // Clear any cached data and continue
+            lastOffsets.clear()
+        } catch (e: Exception) {
+            Log.e(TAG, "Unexpected error in scroll handling", e)
+            // Don't crash the service
         }
     }
 
@@ -294,8 +313,9 @@ class ThumbRestAccessibilityService : AccessibilityService() {
     override fun onUnbind(intent: android.content.Intent?): Boolean {
         lastOffsets.clear()
         isTouchInteraction = false
-        Log.d(TAG, "Accessibility service unbound")
-        return super.onUnbind(intent)
+        Log.d(TAG, "Accessibility service unbound - requesting restart")
+        // Return true to indicate we want to be restarted
+        return true
     }
 
     override fun onDestroy() {
@@ -325,7 +345,7 @@ class ThumbRestAccessibilityService : AccessibilityService() {
         
         // Attempt to restart the service by sending a broadcast
         try {
-            val intent = Intent("com.example.thumbrest.RESTART_SERVICE")
+            val intent = Intent("com.thumbolympics.app.RESTART_SERVICE")
             intent.setPackage(packageName)
             sendBroadcast(intent)
             Log.d(TAG, "Restart broadcast sent")

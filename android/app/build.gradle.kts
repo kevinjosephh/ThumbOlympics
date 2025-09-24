@@ -9,7 +9,7 @@ plugins {
 }
 
 android {
-    namespace = "com.example.thumbrest"
+    namespace = "com.thumbolympics.app"
     compileSdk = 36
     ndkVersion = "27.0.12077973"
 
@@ -28,7 +28,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.example.thumbrest"
+        applicationId = "com.thumbolympics.app"
         minSdk = 24
         targetSdk = 35
         versionCode = 1
